@@ -1,0 +1,118 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+    themes: light --default, dark --prefersdark;
+}
+
+@plugin "daisyui/theme" {
+    name: "sail2gether";
+    default: true;
+    prefersdark: true;
+    color-scheme: "light";
+    --color-base-100: oklch(100% 0 0);
+    --color-base-200: oklch(100% 0 0);
+    --color-base-300: oklch(0% 0 0);
+    --color-base-content: oklch(0% 0 0);
+    --color-primary: oklch(15.906% 0 0);
+    --color-primary-content: oklch(100% 0 0);
+    --color-secondary: oklch(21.455% 0.001 17.278);
+    --color-secondary-content: oklch(100% 0 0);
+    --color-accent: oklch(26.861% 0 0);
+    --color-accent-content: oklch(100% 0 0);
+    --color-neutral: oklch(0% 0 0);
+    --color-neutral-content: oklch(100% 0 0);
+    --color-info: oklch(50% 0.134 242.749);
+    --color-info-content: oklch(100% 0 0);
+    --color-success: oklch(50% 0.118 165.612);
+    --color-success-content: oklch(100% 0 0);
+    --color-warning: oklch(55% 0.135 66.442);
+    --color-warning-content: oklch(100% 0 0);
+    --color-error: oklch(51% 0.222 16.935);
+    --color-error-content: oklch(100% 0 0);
+
+    /* Border radius */
+    --radius-selector: 0rem;
+    --radius-field: 0rem;
+    --radius-box: 0rem;
+
+    /* Base sizes */
+    --size-selector: 0.28125rem;
+    --size-field: 0.25rem;
+
+    /* Border size */
+    --border: 2px;
+
+    /* Effects */
+    --depth: 0;
+    --noise: 0;
+}
+
+@font-face {
+    font-family: "BricolageGrotesqueLight";
+    src: url("./assets/fonts/BricolageGrotesque-Light.ttf") format("truetype");
+    font-weight: 200;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "BricolageGrotesque";
+    src: url("./assets/fonts/BricolageGrotesque-ExtraBold.ttf") format("truetype");
+    font-weight: 400;
+    font-style: normal;
+}
+
+@font-face {
+    font-family: "BricolageGrotesqueBold";
+    src: url("./assets/fonts/BricolageGrotesque-ExtraBold.ttf") format("truetype");
+    font-weight: 700;
+    font-style: normal;
+}
+
+@theme {
+    --font-sans: BricolageGrotesqueLight, "sans-serif";
+    --font-regular: BricolageGrotesqueRegular, "sans-serif";
+    --font-bold: BricolageGrotesqueBold, "sans-serif";
+}
+
+/* Custom scrollbar styling */
+/* Webkit browsers (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+    width: 0.75rem;
+    height: 0.75rem;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-base-300);
+    border-radius: 0;
+}
+
+/* Firefox */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-base-300) transparent;
+}
+
+/* Smooth scrolling for the entire page */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Prevent layout shift when scrollbar appears/disappears */
+body {
+    padding-left: calc(100vw - 100%);
+}
+
+/* Toast slide-in animation from right */
+@keyframes slide-in-right {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
