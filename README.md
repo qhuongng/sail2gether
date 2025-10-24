@@ -6,7 +6,7 @@ As for why it's named similar to a certain service with similar functionality...
 
 ## General information
 
-This repo consists of a **client** and a **Cloudflare worker**. The client is a simple **React + Vite + TypeScript** client. The 'back end' includes two services:
+This repo consists of a **client** and a **Cloudflare worker**. The client is a simple **React + Vite + TypeScript** web app. The 'back end' includes two services:
 
 -   **Firebase's Realtime Database** for storing room and video information, as well as playback syncing.
 -   **Cloudflare R2** for file storage. The worker handles uploading files to and serving them from a Cloudflare R2 object store bucket.
