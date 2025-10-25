@@ -1,6 +1,8 @@
 import { Outlet } from "react-router-dom";
-import { ToastProvider } from "@/components/toast";
+
 import { useToastStore } from "@/store/toast-store";
+
+import { ToastProvider } from "@/components/toast";
 
 const RootLayout = () => {
     const { toasts, removeToast } = useToastStore();

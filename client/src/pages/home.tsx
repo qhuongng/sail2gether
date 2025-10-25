@@ -1,18 +1,22 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ref, set, get, remove, serverTimestamp } from "firebase/database";
-import { db } from "@/utils/firebase";
+
 import { WORKER_URL, R2_PUBLIC_URL, UPLOAD_SECRET } from "@/constants/config";
+import { useToastStore } from "@/store/toast-store";
 import type { RoomData } from "@/types/room";
+import { db } from "@/utils/firebase";
 import {
     generateRoomId,
     loadHostedRooms,
     saveHostedRoom,
     removeHostedRoomFromStorage,
 } from "@/utils/helpers";
-import { useToastStore } from "@/store/toast-store";
-import { Modal } from "@/components/modal";
+
 import iconImage from "@/assets/icons/apple-touch-icon.png";
+import Button from "@/components/button";
+import Modal from "@/components/modal";
+import TextInput from "@/components/text-input";
 
 function Home() {
     const [roomId, setRoomId] = useState<string>("");
@@ -47,8 +51,8 @@ function Home() {
         } catch (error) {
             console.error("Error creating room:", error);
             showToast(
-                `Failed to create room: ${
-                    error instanceof Error ? error.message : "Unknown error"
+                `Oh no, your room couldn't be created—${
+                    error instanceof Error ? error.message : "and I don't even know why. 😔"
                 }`,
                 "error"
             );
@@ -58,7 +62,7 @@ function Home() {
     // Join existing room
     const joinRoom = async (): Promise<void> => {
         if (!roomId.trim()) {
-            showToast("Please enter a room ID", "warning");
+            showToast("You can't barge into a wall! Please enter a room ID first.", "warning");
             return;
         }
 
@@ -69,12 +73,14 @@ function Home() {
             if (roomSnap.exists()) {
                 navigate(`/room/${roomId}`);
             } else {
-                showToast("Room not found", "error");
+                showToast("I don't see your room anywhere. Wrong address? 🤔", "error");
             }
         } catch (error) {
             console.error("Error joining room:", error);
             showToast(
-                `Failed to join room: ${error instanceof Error ? error.message : "Unknown error"}`,
+                `Oh no, I couldn't get you into this room—${
+                    error instanceof Error ? error.message : "and I don't even know why. 😔"
+                }`,
                 "error"
             );
         }
@@ -89,15 +95,18 @@ function Home() {
             if (roomSnap.exists()) {
                 navigate(`/room/${roomIdToRejoin}`);
             } else {
-                showToast("Room not found. It may have been deleted.", "error");
+                showToast(
+                    "I don't see your room anywhere. Did you recently clear your browsing history? 🤔",
+                    "error"
+                );
                 const updatedRooms = removeHostedRoomFromStorage(roomIdToRejoin);
                 setHostedRooms(updatedRooms);
             }
         } catch (error) {
             console.error("Error rejoining room:", error);
             showToast(
-                `Failed to rejoin room: ${
-                    error instanceof Error ? error.message : "Unknown error"
+                `Aw, you got locked out—${
+                    error instanceof Error ? error.message : "and I don't even know why. 😔"
                 }`,
                 "error"
             );
@@ -162,12 +171,12 @@ function Home() {
             const updatedRooms = removeHostedRoomFromStorage(roomId);
             setHostedRooms(updatedRooms);
 
-            showToast(`Room "${roomId}" has been deleted successfully.`, "success");
+            showToast(`Room "${roomId}" successfully demolished. 🚪💥🚜`, "success");
         } catch (error) {
             console.error("Error removing hosted room:", error);
             showToast(
-                `Failed to delete room: ${
-                    error instanceof Error ? error.message : "Unknown error"
+                `Oh no, your room couldn't be demolished—${
+                    error instanceof Error ? error.message : "and I don't even know why. 😔"
                 }`,
                 "error"
             );
@@ -185,54 +194,42 @@ function Home() {
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
-                <button
-                    className="btn border-2 border-base-300 disabled:border-neutral-400! disabled:opacity-50 py-0 px-2"
-                    onClick={createRoom}
-                >
-                    Create a room
-                </button>
+                <Button onClick={createRoom}>Create a room</Button>
 
                 <span className="sm:mx-6 my-2">or</span>
 
                 <div className="flex w-full flex-1 gap-2.5">
-                    <input
-                        type="text"
-                        placeholder="Enter room ID"
+                    <TextInput
+                        placeholder="Enter existing room ID"
                         value={roomId}
                         onChange={(e) => setRoomId(e.target.value)}
-                        className="w-full border-2 px-2 border-neutral-400 focus:border-base-300 focus:outline-0 placeholder:text-base-content placeholder:opacity-40"
                     />
-                    <button
-                        className="btn border-2 border-base-300 disabled:border-neutral-400! disabled:opacity-50 py-0 px-2"
-                        onClick={joinRoom}
-                    >
-                        Join room
-                    </button>
+                    <Button onClick={joinRoom} title="Join an existing room">
+                        Barge in!!!
+                    </Button>
                 </div>
             </div>
 
             {hostedRooms.length > 0 && (
                 <div className="mb-8">
-                    <h2 className="text-xl font-semibold mt-6 mb-3">Previously hosted rooms</h2>
+                    <h2 className="text-xl font-semibold mt-6 mb-3">Rooms you hosted</h2>
                     <div className="flex flex-col gap-2.5 mt-2.5">
                         {hostedRooms.map((hostedRoomId) => (
                             <div key={hostedRoomId} className="flex items-center gap-2.5">
                                 <span className="flex-1">{hostedRoomId}</span>
-                                <button
-                                    className="btn border-2 border-base-300 disabled:border-neutral-400! disabled:opacity-50"
-                                    onClick={() => rejoinHostedRoom(hostedRoomId)}
-                                >
+                                <Button onClick={() => rejoinHostedRoom(hostedRoomId)}>
                                     Rejoin
-                                </button>
-                                <button
-                                    className="btn border-2 border-error text-error disabled:border-neutral-400! disabled:opacity-50"
+                                </Button>
+                                <Button
                                     onClick={() => {
                                         setRoomToDelete(hostedRoomId);
                                         setDeleteModalOpen(true);
                                     }}
+                                    variant="error"
+                                    title="Delete room"
                                 >
-                                    Delete
-                                </button>
+                                    Demolish
+                                </Button>
                             </div>
                         ))}
                     </div>
@@ -240,15 +237,20 @@ function Home() {
             )}
 
             <div className="mt-8 p-4 border-2">
-                <h3 className="font-bold text-lg mb-2">How to use</h3>
+                <h3 className="font-bold text-lg mb-2">"Uhhhh, help!"</h3>
                 <ol className="list-decimal list-inside space-y-1">
-                    <li>Click "Create a room" to start a new watch room</li>
-                    <li>Upload a video file or paste a video URL</li>
-                    <li>Share the room ID with friends to watch together</li>
+                    <li>
+                        Click "Create a room" to start a new watch room, or barge into an existing
+                        room!
+                    </li>
+                    <li>
+                        If you chose to create a new room, upload a video file or paste a video URL.
+                    </li>
+                    <li>Share the room ID with friends. Enjoy your sail2gether-and-chill!</li>
                 </ol>
                 <p className="mt-2.5 text-sm">
                     <strong>Note:</strong> YouTube videos will display but synchronization is
-                    limited due to YouTube's restrictions. For full sync support, use direct video
+                    limited (YouTube's restrictions 😔). For full sync support, use direct video
                     file URLs (.mp4, .webm, etc.)
                 </p>
             </div>
@@ -257,10 +259,10 @@ function Home() {
                 isOpen={deleteModalOpen}
                 onClose={() => setDeleteModalOpen(false)}
                 onConfirm={() => removeHostedRoom(roomToDelete)}
-                title="Delete room"
+                title="Demolish this room 🚪🚜"
                 message={`Are you sure you want to delete room "${roomToDelete}"? This will also delete the associated video from storage.`}
-                confirmText="Delete"
-                cancelText="Cancel"
+                confirmText="Yeah!!!"
+                cancelText="Nope"
                 confirmVariant="error"
             />
         </div>

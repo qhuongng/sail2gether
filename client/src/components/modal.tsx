@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import Button from "@/components/button";
+
 interface ModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -8,10 +10,10 @@ interface ModalProps {
     message: string;
     confirmText?: string;
     cancelText?: string;
-    confirmVariant?: "primary" | "error" | "success" | "warning";
+    confirmVariant?: "default" | "error" | "success" | "warning" | "info";
 }
 
-export const Modal = ({
+const Modal: React.FC<ModalProps> = ({
     isOpen,
     onClose,
     onConfirm,
@@ -19,8 +21,8 @@ export const Modal = ({
     message,
     confirmText = "Confirm",
     cancelText = "Cancel",
-    confirmVariant = "primary",
-}: ModalProps) => {
+    confirmVariant = "default",
+}) => {
     const dialogRef = useRef<HTMLDialogElement>(null);
 
     useEffect(() => {
@@ -57,21 +59,6 @@ export const Modal = ({
         onClose();
     };
 
-    const getConfirmButtonClass = () => {
-        const baseClass = "btn border-2 py-0 px-2";
-        switch (confirmVariant) {
-            case "error":
-                return `${baseClass} border-error text-error hover:bg-error hover:text-white`;
-            case "success":
-                return `${baseClass} border-success text-success hover:bg-success hover:text-white`;
-            case "warning":
-                return `${baseClass} border-warning text-warning hover:bg-warning hover:text-white`;
-            case "primary":
-            default:
-                return `${baseClass} border-base-300 hover:bg-base-300 hover:text-white`;
-        }
-    };
-
     return (
         <dialog ref={dialogRef} className="modal" onClick={handleBackdropClick}>
             <div className="modal-box bg-white border-2 border-base-content max-w-md p-0">
@@ -80,16 +67,18 @@ export const Modal = ({
                     <p className="text-base">{message}</p>
                 </div>
                 <div className="modal-action p-6 pt-0 flex justify-end gap-2.5">
-                    <button onClick={onClose} className="btn border-2 border-base-300 py-0 px-2">
+                    <Button onClick={onClose} variant="default">
                         {cancelText}
-                    </button>
+                    </Button>
                     {onConfirm && (
-                        <button onClick={handleConfirm} className={getConfirmButtonClass()}>
+                        <Button onClick={handleConfirm} variant={confirmVariant}>
                             {confirmText}
-                        </button>
+                        </Button>
                     )}
                 </div>
             </div>
         </dialog>
     );
 };
+
+export default Modal;

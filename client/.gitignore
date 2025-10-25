@@ -25,3 +25,6 @@ dist-ssr
 
 # Secrets configuration files
 src/constants/config.ts
+
+# Hosting files
+.firebase/

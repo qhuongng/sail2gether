@@ -1,14 +1,17 @@
 import { Link } from "react-router-dom";
 
+import Button from "@/components/button";
+
 const NotFound = () => {
     return (
-        <div className="flex flex-col justify-center items-center min-h-screen">
-            <h1 className="text-4xl font-bold">This page doesn't exist. I think.</h1>
-            <p className="mt-12 text-lg">
-                This site has like, 3 pages. Get back to your watch party.
-            </p>
-            <Link to="/" className="btn btn-lg border-2 border-base-300  mt-24">
-                Go home
+        <div className="flex flex-col justify-center min-h-screen max-w-3xl mx-auto p-12">
+            <h1 className="text-3xl font-bold mb-8">This page doesn't exist. I think.</h1>
+            <p>I wrote like, 3 pages... If I recall correctly.</p>
+
+            <Link to="/">
+                <Button title="Go home" className="mt-24">
+                    Take me back, pls
+                </Button>
             </Link>
         </div>
     );

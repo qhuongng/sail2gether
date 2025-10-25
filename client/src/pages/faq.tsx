@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
-import { faqData } from "@/constants/faq";
 import { Link } from "react-router-dom";
+
+import { faqData } from "@/constants/faq";
+
+import Button from "@/components/button";
 
 const FAQ = () => {
     const [showScrollToTop, setShowScrollToTop] = useState(false);
@@ -82,15 +85,14 @@ const FAQ = () => {
             ))}
 
             {/* Scroll to top button */}
-            <button
+            <Button
                 onClick={scrollToTop}
-                className={`fixed btn py-0 px-2 bottom-6 right-8 border-2 border-base-300 transition-opacity duration-100 ease-in-out flex items-center justify-center z-50 ${
+                className={`fixed bottom-6 right-8 transition-opacity duration-100 ease-in-out z-50 ${
                     showScrollToTop ? "opacity-100" : "opacity-0"
                 }`}
-                aria-label="Scroll to top"
             >
                 Pull me up
-            </button>
+            </Button>
         </div>
     );
 };

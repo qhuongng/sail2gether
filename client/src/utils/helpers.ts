@@ -1,5 +1,16 @@
 import { HOSTED_ROOMS_KEY } from "@/constants/config";
 
+// Validate if a string is a valid URL
+export const isValidUrl = (urlString: string): boolean => {
+    try {
+        const url = new URL(urlString);
+        // Check if protocol is http or https
+        return url.protocol === "http:" || url.protocol === "https:";
+    } catch {
+        return false;
+    }
+};
+
 // Helper function to detect and convert YouTube URLs
 export const getYouTubeVideoId = (url: string): string | null => {
     const patterns = [
@@ -67,5 +78,30 @@ export const isRoomHost = (roomId: string): boolean => {
     } catch (error) {
         console.error("Error checking if user is host:", error);
         return false;
+    }
+};
+
+// Format time for video player display
+export const formatVideoTime = (seconds: number): string => {
+    if (!isFinite(seconds) || seconds < 0) {
+        return "0:00";
+    }
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    // Format based on video duration
+    if (hours > 0) {
+        // h:mm:ss format for videos more than 1 hour
+        return `${hours}:${minutes.toString().padStart(2, "0")}:${secs
+            .toString()
+            .padStart(2, "0")}`;
+    } else if (minutes >= 10) {
+        // mm:ss format for videos 10+ minutes but less than 1 hour
+        return `${minutes}:${secs.toString().padStart(2, "0")}`;
+    } else {
+        // m:ss format for videos less than 10 minutes
+        return `${minutes}:${secs.toString().padStart(2, "0")}`;
     }
 };

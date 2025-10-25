@@ -47,16 +47,16 @@
 }
 
 @font-face {
-    font-family: "BricolageGrotesqueLight";
-    src: url("./assets/fonts/BricolageGrotesque-Light.ttf") format("truetype");
-    font-weight: 200;
+    font-family: "BricolageGrotesque";
+    src: url("./assets/fonts/BricolageGrotesque-Regular.ttf") format("truetype");
+    font-weight: 400;
     font-style: normal;
 }
 
 @font-face {
-    font-family: "BricolageGrotesque";
-    src: url("./assets/fonts/BricolageGrotesque-ExtraBold.ttf") format("truetype");
-    font-weight: 400;
+    font-family: "BricolageGrotesqueSemiBold";
+    src: url("./assets/fonts/BricolageGrotesque-SemiBold.ttf") format("truetype");
+    font-weight: 600;
     font-style: normal;
 }
 
@@ -68,8 +68,9 @@
 }
 
 @theme {
-    --font-sans: BricolageGrotesqueLight, "sans-serif";
-    --font-regular: BricolageGrotesqueRegular, "sans-serif";
+    --font-sans: BricolageGrotesque, "sans-serif";
+    --font-regular: BricolageGrotesque, "sans-serif";
+    --font-semibold: BricolageGrotesqueSemiBold, "sans-serif";
     --font-bold: BricolageGrotesqueBold, "sans-serif";
 }
 

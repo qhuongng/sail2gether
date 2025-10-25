@@ -17,8 +17,8 @@ export const faqData: FAQItem[] = [
     {
         title: `<span class="font-semibold">Is my data safe? Is it private?</span>`,
         content: `
-      <p>Well, you can choose to remove a room you host, and everything should be deleted from Firebase and the Cloudflare R2 bucket. And I have no incentive to sell your illeg<b>ARRRRRGHHH</b> 🏴‍☠️ media anyway, so don't worry.</p>
-      <p class="mt-4">One thing to note is that the list of rooms you host will be stored in your browser's <i>localStorage</i>. So please remove all the rooms before clearing your browsing data, or all the room info and videos will not be deleted. None of your personal information is ever recorded or stored in the servers, though.</p>
+      <p>Well, you can choose to delete a room you host, and everything should be deleted from Firebase and the Cloudflare R2 bucket. And I have no incentive to sell your illeg<b>ARRRRRGHHH</b> 🏴‍☠️ media anyway, so don't worry.</p>
+      <p class="mt-4">One thing to note is that the list of rooms you host will be stored in your browser's <i>localStorage</i>. So please delete all the rooms before clearing your browsing data, or all the room info and videos will not be deleted. None of your personal information is ever recorded or stored in the servers, though.</p>
     `,
     },
     {

@@ -1,17 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ref, update, onValue, serverTimestamp, get } from "firebase/database";
-import { db } from "@/utils/firebase";
+
 import { WORKER_URL, UPLOAD_SECRET } from "@/constants/config";
-import type { RoomData, RoomUpdate } from "@/types/room";
-import { isYouTubeUrl, getYouTubeVideoId, isRoomHost } from "@/utils/helpers";
 import { useToastStore } from "@/store/toast-store";
 import { useRoomStore } from "@/store/room-store";
+import type { RoomData, RoomUpdate } from "@/types/room";
+import { db } from "@/utils/firebase";
+import { isYouTubeUrl, getYouTubeVideoId, isRoomHost, isValidUrl } from "@/utils/helpers";
+
+import Button from "@/components/button";
+import TextInput from "@/components/text-input";
+import VideoPlayer from "@/components/video-player";
 
 function Room() {
     const { id: roomId } = useParams<{ id: string }>();
+
     const navigate = useNavigate();
+
     const { showToast } = useToastStore();
+    const { isUpdatingFromFirebase, setIsUpdatingFromFirebase } = useRoomStore();
 
     const [videoUrl, setVideoUrl] = useState<string>("");
     const [currentVideoUrl, setCurrentVideoUrl] = useState<string>("");
@@ -23,7 +31,6 @@ function Room() {
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const { isUpdatingFromFirebase, setIsUpdatingFromFirebase } = useRoomStore();
     const lastSyncTime = useRef<number>(0);
     const lastUpdateTimestamp = useRef<number>(0);
 
@@ -41,16 +48,12 @@ function Room() {
 
                 if (!snapshot.exists()) {
                     setRoomExists(false);
-                    showToast("Room not found. Redirecting to home...", "error");
-                    setTimeout(() => navigate("/"), 2000);
                 } else {
                     setRoomExists(true);
                 }
             } catch (error) {
                 console.error("Error checking room existence:", error);
                 setRoomExists(false);
-                showToast("Error accessing room. Redirecting to home...", "error");
-                setTimeout(() => navigate("/"), 2000);
             }
         };
 
@@ -77,10 +80,13 @@ function Room() {
                 await videoRef.current.play();
                 videoRef.current.pause();
                 setViewerSyncEnabled(true);
-                showToast("Sync enabled! You will now see what the host is watching.", "success");
+                showToast("Yay! You will now see what the host is watching!!!", "success");
             } catch (error) {
                 console.error("Failed to enable sync:", error);
-                showToast("Failed to enable sync. Please try again.", "error");
+                showToast(
+                    "Hmmm, something went wrong. Please try again once the video shows up.",
+                    "error"
+                );
             }
         }
     };
@@ -90,10 +96,10 @@ function Room() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        // Check file size (optional, adjust as needed)
+        // Check file size
         const maxSize = 4 * 1024 * 1024 * 1024; // 4GB
         if (file.size > maxSize) {
-            showToast("File too large. Maximum size is 4GB.", "error");
+            showToast("Your file is a little too thicc. Maximum size is 4GB.", "error");
             return;
         }
 
@@ -141,11 +147,13 @@ function Room() {
 
             const uploadedUrl = await uploadPromise;
             setVideoUrl(uploadedUrl);
-            showToast('Upload successful! Click "Set video" to use this video.', "success");
+            showToast('Upload successful! Click "Set video" to finish and enjoy. 🍿', "success");
         } catch (error) {
             console.error("Upload error:", error);
             showToast(
-                `Upload failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+                `I couldn't get your video uploaded—${
+                    error instanceof Error ? error.message : "and I don't even know why. 😔"
+                }`,
                 "error"
             );
         } finally {
@@ -160,6 +168,15 @@ function Room() {
     // Set video URL (host only)
     const setRoomVideoUrl = async (): Promise<void> => {
         if (!isHost || !videoUrl.trim() || !roomId) return;
+
+        // Validate URL format
+        if (!isValidUrl(videoUrl.trim())) {
+            showToast(
+                "Your URL looks a little wacky. It should start with http:// or https://.",
+                "error"
+            );
+            return;
+        }
 
         const roomRef = ref(db, `rooms/${roomId}`);
 
@@ -227,14 +244,6 @@ function Room() {
         if (isHost && videoRef.current && !isUpdatingFromFirebase) {
             updateRoomState({
                 currentTime: videoRef.current.currentTime,
-            });
-        }
-    };
-
-    const handleRateChange = (): void => {
-        if (isHost && videoRef.current && !isUpdatingFromFirebase) {
-            updateRoomState({
-                playbackRate: videoRef.current.playbackRate,
             });
         }
     };
@@ -342,7 +351,7 @@ function Room() {
     const copyRoomUrl = (): void => {
         const url = `${window.location.origin}/room/${roomId}`;
         navigator.clipboard.writeText(url);
-        showToast("Room URL copied to clipboard!", "success");
+        showToast("Copied. Now rope your friends in!!!", "success");
     };
 
     // Leave room and go back home
@@ -352,9 +361,12 @@ function Room() {
 
     if (!roomId) {
         return (
-            <div className="max-w-3xl mx-auto p-12 h-screen flex flex-col justify-center">
-                <p>Invalid room ID</p>
-                <button onClick={leaveRoom}>Go home</button>
+            <div className="flex flex-col justify-center min-h-screen max-w-3xl mx-auto p-12">
+                <h1 className="text-3xl font-bold mb-8">Oops!!!</h1>
+                <p>Something happened, and the room ID is missing. Sorry!!!</p>
+                <Button onClick={leaveRoom} title="Go home" className="mt-24 mr-auto">
+                    Take me back, pls
+                </Button>
             </div>
         );
     }
@@ -371,21 +383,22 @@ function Room() {
     // Show error state if room doesn't exist
     if (roomExists === false) {
         return (
-            <div className="max-w-3xl mx-auto p-12 h-screen flex flex-col justify-center items-center">
-                <p className="text-xl mb-4">Room not found</p>
-                <p className="text-base-content/60 mb-6">
-                    This room does not exist or has been deleted.
+            <div className="flex flex-col justify-center min-h-screen max-w-3xl mx-auto p-12">
+                <h1 className="text-3xl font-bold mb-8">Wrong address!!!</h1>
+                <p>
+                    There's no room with the ID you entered. Double check the URL or ask the host
+                    for a new invite link (they might have deleted the room too, oops).
                 </p>
-                <button className="btn border-2 border-base-300 py-2 px-4" onClick={leaveRoom}>
-                    Go home
-                </button>
+                <Button onClick={leaveRoom} title="Go home" className="mt-24 mr-auto">
+                    Take me back, pls
+                </Button>
             </div>
         );
     }
 
     return (
         <div className="max-w-3xl mx-auto p-12 h-screen flex flex-col justify-center">
-            <div className="mb-5">
+            <div className={`${currentVideoUrl ? "mb-8" : ""}`}>
                 <div className="flex flex-col sm:flex-row items-start justify-between">
                     <div className="flex flex-col">
                         <h1 className="font-bold text-3xl">Room ID: {roomId}</h1>
@@ -396,28 +409,21 @@ function Room() {
                     </div>
 
                     <div className="flex gap-4 mt-4 sm:mt-0">
-                        <button
-                            className="btn border-2 border-base-300 disabled:border-neutral-400! disabled:opacity-50 py-0 px-2"
-                            onClick={copyRoomUrl}
-                        >
-                            Copy room URL
-                        </button>
-                        <button
-                            className="btn border-2 border-base-300 disabled:border-neutral-400! disabled:opacity-50 py-0 px-2"
-                            onClick={leaveRoom}
-                        >
-                            Go home
-                        </button>
+                        <Button onClick={copyRoomUrl}>Copy room URL</Button>
+                        <Button onClick={leaveRoom}>Go home</Button>
                     </div>
                 </div>
             </div>
 
             {isHost && !currentVideoUrl && (
                 <div className="mb-5 mt-8">
-                    <h3 className="text-xl font-semibold mb-3">Set video</h3>
+                    <p className="mb-8">
+                        Congrats! You've got a room! Now please provide a video for your watch
+                        party.
+                    </p>
 
                     <div className="mb-5">
-                        <h4 className="text-lg mb-2">Option 1: Upload file</h4>
+                        <h4 className="text-lg font-semibold mb-2">Option 1: Upload file</h4>
                         <input
                             ref={fileInputRef}
                             type="file"
@@ -440,21 +446,16 @@ function Room() {
                     </div>
 
                     <div>
-                        <h4 className="text-lg font-medium mb-2">Option 2: Enter video URL</h4>
+                        <h4 className="text-lg font-semibold mb-2">Option 2: Enter video URL</h4>
                         <div className="flex gap-2.5">
-                            <input
-                                type="text"
+                            <TextInput
                                 placeholder="YouTube URL or direct video file URL (.mp4, .webm)"
                                 value={videoUrl}
                                 onChange={(e) => setVideoUrl(e.target.value)}
-                                className="w-full border-2 px-2 border-neutral-400 focus:border-base-300 focus:outline-0 placeholder:text-base-content placeholder:opacity-40"
                             />
-                            <button
-                                className="btn border-2 border-base-300 disabled:border-neutral-400! disabled:opacity-50 py-0 px-2"
-                                onClick={setRoomVideoUrl}
-                            >
+                            <Button disabled={!videoUrl} onClick={setRoomVideoUrl}>
                                 Set video
-                            </button>
+                            </Button>
                         </div>
                     </div>
                 </div>
@@ -463,16 +464,14 @@ function Room() {
             {currentVideoUrl && (
                 <div>
                     {!isHost && !viewerSyncEnabled && (
-                        <div className="mb-5 p-4 border-2 border-warning bg-warning/10 rounded">
-                            <p className="mb-3 font-semibold">
-                                Click the button below to enable video sync with the host.
+                        <div className="flex items-center mb-5 p-4 border-2 border-base-300">
+                            <p>
+                                Due to browsers' autoplay policies, please click this scary button
+                                to enable video sync with the host.
                             </p>
-                            <button
-                                className="btn border-2 border-warning bg-warning text-warning-content hover:bg-warning/80 py-2 px-4"
-                                onClick={enableViewerSync}
-                            >
-                                Enable Sync
-                            </button>
+                            <Button variant="info" className="ml-auto" onClick={enableViewerSync}>
+                                Enable sync
+                            </Button>
                         </div>
                     )}
 
@@ -488,15 +487,13 @@ function Room() {
                             />
                         </div>
                     ) : (
-                        <video
-                            ref={videoRef}
-                            src={currentVideoUrl}
-                            controls={isHost}
-                            className="w-full max-w-3xl max-h-[60vh]"
+                        <VideoPlayer
+                            isHost={isHost}
+                            source={currentVideoUrl}
+                            videoRef={videoRef}
                             onPlay={handlePlay}
                             onPause={handlePause}
                             onSeeked={handleSeeked}
-                            onRateChange={handleRateChange}
                         />
                     )}
                 </div>
