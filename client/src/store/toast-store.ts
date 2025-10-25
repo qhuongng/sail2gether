@@ -1,17 +1,20 @@
 import { create } from "zustand";
-import type { ToastMessage, ToastType } from "@/components/toast";
+
+import type { StyleVariant } from "@/types/style";
+
+import type { ToastMessage } from "@/components/toast";
 
 interface ToastStore {
     toasts: ToastMessage[];
-    showToast: (message: string, type?: ToastType) => void;
+    showToast: (message: string, variant?: StyleVariant) => void;
     removeToast: (id: string) => void;
 }
 
 export const useToastStore = create<ToastStore>((set) => ({
     toasts: [],
-    showToast: (message: string, type: ToastType = "standard") => {
+    showToast: (message: string, variant: StyleVariant = "default") => {
         const id = `toast-${Date.now()}-${Math.random()}`;
-        const newToast: ToastMessage = { id, message, variant: type };
+        const newToast: ToastMessage = { id, message, variant };
         set((state) => ({ toasts: [...state.toasts, newToast] }));
     },
     removeToast: (id: string) => {

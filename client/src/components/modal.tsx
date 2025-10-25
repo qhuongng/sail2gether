@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import type { StyleVariant } from "@/types/style";
+
 import Button from "@/components/button";
 
 interface ModalProps {
@@ -10,7 +12,7 @@ interface ModalProps {
     message: string;
     confirmText?: string;
     cancelText?: string;
-    confirmVariant?: "default" | "error" | "success" | "warning" | "info";
+    confirmVariant?: StyleVariant;
 }
 
 const Modal: React.FC<ModalProps> = ({

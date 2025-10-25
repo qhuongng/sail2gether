@@ -1,8 +1,10 @@
+import type { StyleVariant } from "@/types/style";
+
 interface ButtonProps {
     children?: React.ReactNode;
     onClick?: () => void;
     square?: boolean;
-    variant?: "default" | "success" | "error" | "info" | "warning";
+    variant?: StyleVariant;
     disabled?: boolean;
     borderless?: boolean;
     title?: string;
