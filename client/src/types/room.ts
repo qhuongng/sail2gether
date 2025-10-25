@@ -3,6 +3,7 @@ import { serverTimestamp } from "firebase/database";
 export interface RoomData {
     hostId: string;
     videoUrl: string;
+    subtitlesUrl?: string;
     isPlaying?: boolean;
     currentTime?: number;
     playbackRate?: number;
@@ -15,6 +16,7 @@ export interface RoomUpdate {
     currentTime?: number;
     playbackRate?: number;
     videoUrl?: string;
+    subtitlesUrl?: string;
     lastUpdate: ReturnType<typeof serverTimestamp>;
     clientTimestamp?: number; // Client-side timestamp for latency calculation
 }

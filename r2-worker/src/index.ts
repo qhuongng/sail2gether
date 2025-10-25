@@ -8,6 +8,19 @@ interface Env {
 
 const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4GB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
+const ALLOWED_SUBTITLE_TYPES = ['text/vtt', 'application/x-subrip', 'text/plain', 'text/srt'];
+const MAX_SUBTITLE_SIZE = 10 * 1024 * 1024; // 10MB
+
+// Simple SRT to VTT converter
+function convertSrtToVtt(srtContent: string): string {
+	// Add WEBVTT header
+	let vtt = 'WEBVTT\n\n';
+
+	// Replace SRT timestamp format (00:00:00,000) with VTT format (00:00:00.000)
+	vtt += srtContent.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+
+	return vtt;
+}
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
@@ -43,6 +56,7 @@ export default {
 				// Parse form data
 				const formData = await request.formData();
 				const file = formData.get('file');
+				const fileType = formData.get('type') as string | null; // 'video' or 'subtitle'
 
 				if (!file || !(file instanceof File)) {
 					return new Response(JSON.stringify({ error: 'No file provided' }), {
@@ -54,12 +68,17 @@ export default {
 					});
 				}
 
+				const isSubtitle = fileType === 'subtitle';
+				const maxSize = isSubtitle ? MAX_SUBTITLE_SIZE : MAX_FILE_SIZE;
+				const allowedTypes = isSubtitle ? ALLOWED_SUBTITLE_TYPES : ALLOWED_VIDEO_TYPES;
+				const prefix = isSubtitle ? 'subtitles' : 'videos';
+
 				// Validate file size
-				if (file.size > MAX_FILE_SIZE) {
+				if (file.size > maxSize) {
 					return new Response(
 						JSON.stringify({
 							error: 'File too large',
-							maxSize: MAX_FILE_SIZE,
+							maxSize: maxSize,
 							actualSize: file.size,
 						}),
 						{
@@ -72,12 +91,12 @@ export default {
 					);
 				}
 
-				// Validate content type
-				if (file.type && !ALLOWED_VIDEO_TYPES.includes(file.type)) {
+				// Validate content type (more lenient for subtitles as they might be sent as text/plain)
+				if (file.type && !allowedTypes.includes(file.type) && !isSubtitle) {
 					return new Response(
 						JSON.stringify({
 							error: 'Invalid file type',
-							allowedTypes: ALLOWED_VIDEO_TYPES,
+							allowedTypes: allowedTypes,
 							receivedType: file.type,
 						}),
 						{
@@ -94,28 +113,39 @@ export default {
 				const timestamp = Date.now();
 				const randomStr = Math.random().toString(36).substring(2, 8);
 				const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-				const key = `videos/${timestamp}-${randomStr}-${sanitizedName}`;
+				const key = `${prefix}/${timestamp}-${randomStr}-${sanitizedName}`;
 
 				// Upload to R2
-				const arrayBuffer = await file.arrayBuffer();
-				await env.SAIL2GETHER_BUCKET.put(key, arrayBuffer, {
+				let fileData: ArrayBuffer | string = await file.arrayBuffer();
+				let contentType = isSubtitle ? 'text/vtt' : file.type || 'video/mp4';
+
+				// Convert SRT to VTT if needed
+				if (isSubtitle && (file.name.toLowerCase().endsWith('.srt') || file.type.includes('subrip'))) {
+					const textDecoder = new TextDecoder('utf-8');
+					const srtContent = textDecoder.decode(fileData as ArrayBuffer);
+					fileData = convertSrtToVtt(srtContent);
+					contentType = 'text/vtt';
+				}
+
+				await env.SAIL2GETHER_BUCKET.put(key, fileData, {
 					httpMetadata: {
-						contentType: file.type || 'video/mp4',
+						contentType: contentType,
 					},
 					customMetadata: {
 						originalName: file.name,
 						uploadedAt: new Date().toISOString(),
 						fileSize: file.size.toString(),
+						fileType: fileType || 'video',
 					},
 				});
 
 				// Return R2 public URL
-				const videoUrl = `${env.SAIL2GETHER_PUBLIC_URL}/${key}`;
+				const fileUrl = `${env.SAIL2GETHER_PUBLIC_URL}/${key}`;
 
 				return new Response(
 					JSON.stringify({
 						success: true,
-						url: videoUrl,
+						url: fileUrl,
 						key: key,
 						size: file.size,
 						type: file.type,
@@ -131,13 +161,13 @@ export default {
 			}
 
 			// Direct video streaming endpoint (handles /videos/... URLs)
-			if (url.pathname.startsWith('/videos/') && request.method === 'GET') {
-				const key = url.pathname.substring(1); // Remove leading '/' to get 'videos/...'
+			if ((url.pathname.startsWith('/videos/') || url.pathname.startsWith('/subtitles/')) && request.method === 'GET') {
+				const key = url.pathname.substring(1); // Remove leading '/' to get 'videos/...' or 'subtitles/...'
 
 				const object = await env.SAIL2GETHER_BUCKET.get(key);
 
 				if (!object) {
-					return new Response(JSON.stringify({ error: 'Video not found' }), {
+					return new Response(JSON.stringify({ error: 'File not found' }), {
 						status: 404,
 						headers: {
 							'Content-Type': 'application/json',
@@ -146,13 +176,15 @@ export default {
 					});
 				}
 
+				const isSubtitle = key.startsWith('subtitles/');
+
 				// Get range header for video seeking support
 				const range = request.headers.get('Range');
 
-				// Return the video with proper headers
+				// Return the file with proper headers
 				const headers = new Headers({
 					...corsHeaders,
-					'Content-Type': object.httpMetadata?.contentType || 'video/mp4',
+					'Content-Type': isSubtitle ? 'text/vtt' : object.httpMetadata?.contentType || 'video/mp4',
 					'Cache-Control': 'public, max-age=31536000',
 					'Accept-Ranges': 'bytes',
 				});
@@ -232,7 +264,7 @@ export default {
 
 				const { key } = (await request.json()) as { key: string };
 
-				if (!key || !key.startsWith('videos/')) {
+				if (!key || (!key.startsWith('videos/') && !key.startsWith('subtitles/'))) {
 					console.error('Invalid key:', key);
 					return new Response(JSON.stringify({ error: 'Invalid key', received: key }), {
 						status: 400,
@@ -265,10 +297,12 @@ export default {
 
 				await env.SAIL2GETHER_BUCKET.delete(key);
 
+				const fileType = key.startsWith('videos/') ? 'Video' : 'Subtitle';
+
 				return new Response(
 					JSON.stringify({
 						success: true,
-						message: 'Video deleted',
+						message: `${fileType} deleted`,
 						key: key,
 					}),
 					{

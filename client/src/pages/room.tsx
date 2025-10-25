@@ -23,14 +23,19 @@ function Room() {
 
     const [videoUrl, setVideoUrl] = useState<string>("");
     const [currentVideoUrl, setCurrentVideoUrl] = useState<string>("");
+    const [subtitlesUrl, setSubtitlesUrl] = useState<string>("");
+    const [currentSubtitlesUrl, setCurrentSubtitlesUrl] = useState<string>("");
     const [uploading, setUploading] = useState<boolean>(false);
     const [uploadProgress, setUploadProgress] = useState<number>(0);
+    const [uploadingSubtitles, setUploadingSubtitles] = useState<boolean>(false);
+    const [subtitlesUploadProgress, setSubtitlesUploadProgress] = useState<number>(0);
     const [isHost, setIsHost] = useState<boolean>(false);
     const [viewerSyncEnabled, setViewerSyncEnabled] = useState<boolean>(false);
     const [roomExists, setRoomExists] = useState<boolean | null>(null);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const subtitlesInputRef = useRef<HTMLInputElement>(null);
     const lastSyncTime = useRef<number>(0);
     const lastUpdateTimestamp = useRef<number>(0);
 
@@ -109,6 +114,7 @@ function Room() {
         try {
             const formData = new FormData();
             formData.append("file", file);
+            formData.append("type", "video");
 
             // Create XMLHttpRequest for progress tracking
             const xhr = new XMLHttpRequest();
@@ -165,6 +171,91 @@ function Room() {
         }
     };
 
+    // Upload subtitle file to Cloudflare R2
+    const handleSubtitleUpload = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        // Check file size (10MB max for subtitles)
+        const maxSize = 10 * 1024 * 1024; // 10MB
+        if (file.size > maxSize) {
+            showToast("Subtitle file is too large. Maximum size is 10MB.", "error");
+            return;
+        }
+
+        // Check file extension
+        const validExtensions = [".vtt", ".srt"];
+        const fileName = file.name.toLowerCase();
+        const hasValidExtension = validExtensions.some((ext) => fileName.endsWith(ext));
+
+        if (!hasValidExtension) {
+            showToast("Please upload a .vtt or .srt subtitle file.", "error");
+            return;
+        }
+
+        setUploadingSubtitles(true);
+        setSubtitlesUploadProgress(0);
+
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("type", "subtitle");
+
+            // Create XMLHttpRequest for progress tracking
+            const xhr = new XMLHttpRequest();
+
+            // Track upload progress
+            xhr.upload.addEventListener("progress", (e) => {
+                if (e.lengthComputable) {
+                    const percentComplete = (e.loaded / e.total) * 100;
+                    setSubtitlesUploadProgress(Math.round(percentComplete));
+                }
+            });
+
+            // Handle completion
+            const uploadPromise = new Promise<string>((resolve, reject) => {
+                xhr.addEventListener("load", () => {
+                    if (xhr.status === 200) {
+                        const response = JSON.parse(xhr.responseText);
+                        resolve(response.url);
+                    } else {
+                        reject(new Error(`Upload failed: ${xhr.statusText}`));
+                    }
+                });
+
+                xhr.addEventListener("error", () => {
+                    reject(new Error("Upload failed"));
+                });
+
+                xhr.addEventListener("abort", () => {
+                    reject(new Error("Upload cancelled"));
+                });
+            });
+
+            xhr.open("POST", `${WORKER_URL}/upload`);
+            xhr.setRequestHeader("Authorization", `Bearer ${UPLOAD_SECRET}`);
+            xhr.send(formData);
+
+            const uploadedUrl = await uploadPromise;
+            setSubtitlesUrl(uploadedUrl);
+            showToast("Subtitle uploaded! It will be added when you set the video.", "success");
+        } catch (error) {
+            console.error("Subtitle upload error:", error);
+            showToast(
+                `Subtitle upload failed: ${
+                    error instanceof Error ? error.message : "Unknown error"
+                }`,
+                "error"
+            );
+        } finally {
+            setUploadingSubtitles(false);
+            setSubtitlesUploadProgress(0);
+            if (subtitlesInputRef.current) {
+                subtitlesInputRef.current.value = "";
+            }
+        }
+    };
+
     // Set video URL (host only)
     const setRoomVideoUrl = async (): Promise<void> => {
         if (!isHost || !videoUrl.trim() || !roomId) return;
@@ -180,16 +271,34 @@ function Room() {
 
         const roomRef = ref(db, `rooms/${roomId}`);
 
-        await update(roomRef, {
+        const updateData: {
+            videoUrl: string;
+            subtitlesUrl?: string;
+            isPlaying: boolean;
+            currentTime: number;
+            playbackRate: number;
+            lastUpdate: ReturnType<typeof serverTimestamp>;
+            clientTimestamp: number;
+        } = {
             videoUrl: videoUrl,
             isPlaying: false,
             currentTime: 0,
             playbackRate: 1,
             lastUpdate: serverTimestamp(),
             clientTimestamp: Date.now(),
-        });
+        };
+
+        // Add subtitles URL if present
+        if (subtitlesUrl) {
+            updateData.subtitlesUrl = subtitlesUrl;
+        }
+
+        await update(roomRef, updateData);
 
         setCurrentVideoUrl(videoUrl);
+        if (subtitlesUrl) {
+            setCurrentSubtitlesUrl(subtitlesUrl);
+        }
     };
 
     // Update Firebase with video state (host only)
@@ -278,6 +387,13 @@ function Room() {
                 setCurrentVideoUrl(data.videoUrl);
             }
 
+            // Update subtitles URL if changed
+            if (data.subtitlesUrl && data.subtitlesUrl !== currentSubtitlesUrl) {
+                setCurrentSubtitlesUrl(data.subtitlesUrl);
+            } else if (!data.subtitlesUrl && currentSubtitlesUrl) {
+                setCurrentSubtitlesUrl("");
+            }
+
             // If viewer, sync with host
             if (!isHost) {
                 const video = videoRef.current;
@@ -345,7 +461,14 @@ function Room() {
         });
 
         return () => unsubscribe();
-    }, [roomId, currentVideoUrl, isHost, setIsUpdatingFromFirebase, viewerSyncEnabled]);
+    }, [
+        roomId,
+        currentVideoUrl,
+        currentSubtitlesUrl,
+        isHost,
+        setIsUpdatingFromFirebase,
+        viewerSyncEnabled,
+    ]);
 
     // Copy room URL to clipboard
     const copyRoomUrl = (): void => {
@@ -445,6 +568,34 @@ function Room() {
                         )}
                     </div>
 
+                    <div className="mb-5">
+                        <h4 className="text-lg font-semibold text-info mb-2">
+                            Optional: Upload subtitle file
+                        </h4>
+                        <input
+                            ref={subtitlesInputRef}
+                            type="file"
+                            accept=".vtt,.srt"
+                            onChange={handleSubtitleUpload}
+                            disabled={uploadingSubtitles}
+                            className="w-full file-input file-input-bordered border-neutral-400 hover:border-base-300 mb-2.5"
+                        />
+                        {uploadingSubtitles && (
+                            <div>
+                                <div className="w-full border-2 mb-2.5 h-5 z-10 overflow-hidden">
+                                    <div
+                                        className="bg-info h-full transition-all duration-300"
+                                        style={{ width: `${subtitlesUploadProgress}%` }}
+                                    />
+                                </div>
+                                <p>Uploading subtitles: {subtitlesUploadProgress}%</p>
+                            </div>
+                        )}
+                        {subtitlesUrl && !uploadingSubtitles && (
+                            <p className="text-success text-sm">✓ Subtitle file ready</p>
+                        )}
+                    </div>
+
                     <div>
                         <h4 className="text-lg font-semibold mb-2">Option 2: Enter video URL</h4>
                         <div className="flex gap-2.5">
@@ -490,6 +641,7 @@ function Room() {
                         <VideoPlayer
                             isHost={isHost}
                             source={currentVideoUrl}
+                            subtitlesUrl={currentSubtitlesUrl}
                             videoRef={videoRef}
                             onPlay={handlePlay}
                             onPause={handlePause}

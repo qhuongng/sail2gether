@@ -163,6 +163,49 @@ function Home() {
                     console.log("Video URL is not hosted on R2, skipping deletion:", data.videoUrl);
                 }
 
+                // Delete subtitles from R2 if they exist and are hosted on R2
+                if (data.subtitlesUrl && data.subtitlesUrl.includes(R2_PUBLIC_URL)) {
+                    try {
+                        // Extract the key from the URL
+                        const key = data.subtitlesUrl.replace(R2_PUBLIC_URL + "/", "");
+
+                        if (!key || !key.startsWith("subtitles/")) {
+                            console.error(
+                                "Failed to extract valid subtitle key from URL:",
+                                data.subtitlesUrl,
+                                "Extracted key:",
+                                key
+                            );
+                        } else {
+                            const response = await fetch(`${WORKER_URL}/delete`, {
+                                method: "POST",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                    Authorization: `Bearer ${UPLOAD_SECRET}`,
+                                },
+                                body: JSON.stringify({ key }),
+                            });
+
+                            if (!response.ok) {
+                                const errorText = await response.text();
+                                console.error(
+                                    "Failed to delete subtitles from R2. Status:",
+                                    response.status,
+                                    "Response:",
+                                    errorText
+                                );
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Error deleting subtitles from R2:", error);
+                    }
+                } else if (data.subtitlesUrl) {
+                    console.log(
+                        "Subtitles URL is not hosted on R2, skipping deletion:",
+                        data.subtitlesUrl
+                    );
+                }
+
                 // Delete room from Firebase
                 await remove(roomRef);
             }

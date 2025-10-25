@@ -10,6 +10,7 @@ import {
     VolumeDown,
     Fullscreen,
     ExitFullscreen,
+    ClosedCaptions,
 } from "@/constants/svg/video-player";
 import { formatVideoTime } from "@/utils/helpers";
 
@@ -17,6 +18,7 @@ import Button from "@/components/button";
 
 interface VideoPlayerProps {
     source: string;
+    subtitlesUrl?: string;
     videoRef: React.RefObject<HTMLVideoElement | null> | null;
     onPlay: () => void;
     onPause: () => void;
@@ -26,6 +28,7 @@ interface VideoPlayerProps {
 
 const VideoPlayer: React.FC<VideoPlayerProps> = ({
     source,
+    subtitlesUrl,
     videoRef,
     onPlay,
     onPause,
@@ -46,6 +49,70 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const [tooltipVisible, setTooltipVisible] = useState(false);
     const [tooltipTime, setTooltipTime] = useState(0);
     const [tooltipPosition, setTooltipPosition] = useState(0);
+    const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
+
+    // Initialize subtitle track state
+    useEffect(() => {
+        const video = videoRef?.current;
+        if (!video) return;
+
+        const handleTrackLoad = () => {
+            if (video.textTracks && video.textTracks.length > 0) {
+                const track = video.textTracks[0];
+                // Initially disable subtitles
+                track.mode = "hidden";
+                setSubtitlesEnabled(false);
+            }
+        };
+
+        // Set initial state
+        handleTrackLoad();
+
+        // Listen for track changes
+        video.addEventListener("loadedmetadata", handleTrackLoad);
+
+        return () => {
+            video.removeEventListener("loadedmetadata", handleTrackLoad);
+        };
+    }, [videoRef, subtitlesUrl]);
+
+    // Update subtitle cues when controls visibility changes
+    useEffect(() => {
+        const video = videoRef?.current;
+        if (!video || !subtitlesUrl) return;
+
+        // Position cues up when controls are visible
+        const linePosition = showControls ? (isFullscreen ? -3 : -4) : -1;
+
+        if (video.textTracks && video.textTracks.length > 0) {
+            const track = video.textTracks[0];
+
+            // Update ALL cues (including future ones that haven't appeared yet)
+            if (track.cues && track.cues.length > 0) {
+                // Store the current track mode to restore it later
+                const currentMode = track.mode;
+
+                // Only update cues that need updating (check if already at correct position)
+                let needsUpdate = false;
+                Array.from(track.cues).forEach((cue) => {
+                    const vttCue = cue as VTTCue;
+                    if (vttCue.line !== linePosition) {
+                        vttCue.line = linePosition;
+                        needsUpdate = true;
+                    }
+                });
+
+                // Only force re-render if we actually updated cues and track is showing
+                if (needsUpdate && currentMode === "showing") {
+                    track.mode = "hidden";
+                    // Use requestAnimationFrame to ensure the browser processes the mode change
+                    requestAnimationFrame(() => {
+                        track.mode = "showing";
+                    });
+                }
+            }
+        }
+    }, [showControls, videoRef, subtitlesUrl, isFullscreen]);
 
     useEffect(() => {
         const video = videoRef?.current;
@@ -207,6 +274,20 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
     }, []);
 
+    const toggleSubtitles = useCallback(() => {
+        const video = videoRef?.current;
+        if (!video || !video.textTracks || video.textTracks.length === 0) return;
+
+        const track = video.textTracks[0];
+        if (track.mode === "showing") {
+            track.mode = "hidden";
+            setSubtitlesEnabled(false);
+        } else {
+            track.mode = "showing";
+            setSubtitlesEnabled(true);
+        }
+    }, [videoRef]);
+
     const seekForward = useCallback(() => {
         const video = videoRef?.current;
         if (!video) return;
@@ -328,6 +409,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <video
                 ref={videoRef}
                 controls
+                crossOrigin="anonymous"
                 preload="metadata"
                 onPlay={onPlay}
                 onPause={onPause}
@@ -338,6 +420,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 }}
             >
                 <source src={source} />
+                {subtitlesUrl && (
+                    <track kind="subtitles" src={subtitlesUrl} srcLang="en" label="English" />
+                )}
             </video>
 
             {/* Player controls */}
@@ -409,6 +494,18 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 <Button onClick={() => alterVolume("+")} square borderless title="Volume up">
                     {VolumeUp}
                 </Button>
+
+                {subtitlesUrl && (
+                    <Button
+                        onClick={toggleSubtitles}
+                        square
+                        borderless
+                        title="Toggle subtitles"
+                        variant={subtitlesEnabled ? "info" : "default"}
+                    >
+                        {ClosedCaptions}
+                    </Button>
+                )}
 
                 {fullscreenSupported && (
                     <Button onClick={handleFullscreen} square borderless title="Toggle fullscreen">
