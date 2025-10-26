@@ -4,7 +4,7 @@ export const faqData: FAQItem[] = [
     {
         title: `<span class="font-semibold">What's this?</span>`,
         content: `
-      <p>Recently (circa October 2025), my friend and I have decided to watch a movie together every weekend. Problem is, we live half a world apart. Sharing the screen over video conferencing apps means that one of us will always suffer from poor video and audio quality, and Teleparty only supports legit sources which we c<b>ARRRRRGHHH</b> 🏴‍☠️ So, yeah, I spent a day making this. The app name is definitely not a reference btw.</p>
+      <p>Recently (circa October 2025), my friend and I have decided to watch a movie together every weekend. Problem is, we live half a world apart. Sharing the screen over video conferencing apps means that one of us will always suffer from poor video and audio quality, and Teleparty only supports legit sources which we c<b>ARRRRRGHHH</b> 🏴‍☠️ So, yeah, I spent a couple days making this. The app name is definitely not a reference btw.</p>
       <p class="mt-4">It was also a good opportunity to explore some tools I didn't have time to check out before, like Firebase and Cloudflare R2. Frankly, I was also lazy and cheap, so this app is essentially just a React client (no server needed yay).</p>
     `,
     },

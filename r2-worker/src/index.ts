@@ -1,37 +1,42 @@
-// worker.ts - Cloudflare Worker for R2 video uploads
+// worker.ts - Cloudflare Worker using R2 Multipart Upload API (following official docs)
 
 interface Env {
 	SAIL2GETHER_BUCKET: R2Bucket;
 	SAIL2GETHER_R2_SECRET: string;
 	SAIL2GETHER_PUBLIC_URL: string;
+	SAIL2GETHER_UPLOAD_METADATA: KVNamespace;
+}
+
+interface UploadMetadata {
+	key: string;
+	filename: string;
+	fileSize: number;
+	totalChunks: number;
+	uploadId: string; // R2 multipart upload ID
+	parts: R2UploadedPart[];
+	createdAt: number;
 }
 
 const MAX_FILE_SIZE = 4 * 1024 * 1024 * 1024; // 4GB
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska'];
 const ALLOWED_SUBTITLE_TYPES = ['text/vtt', 'application/x-subrip', 'text/plain', 'text/srt'];
 const MAX_SUBTITLE_SIZE = 10 * 1024 * 1024; // 10MB
+const UPLOAD_EXPIRY = 24 * 60 * 60; // 24 hours
 
-// Simple SRT to VTT converter
 function convertSrtToVtt(srtContent: string): string {
-	// Add WEBVTT header
 	let vtt = 'WEBVTT\n\n';
-
-	// Replace SRT timestamp format (00:00:00,000) with VTT format (00:00:00.000)
 	vtt += srtContent.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
-
 	return vtt;
 }
 
 export default {
 	async fetch(request: Request, env: Env): Promise<Response> {
-		// CORS headers
 		const corsHeaders = {
 			'Access-Control-Allow-Origin': '*',
-			'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+			'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 			'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 		};
 
-		// Handle preflight request
 		if (request.method === 'OPTIONS') {
 			return new Response(null, { headers: corsHeaders });
 		}
@@ -39,32 +44,269 @@ export default {
 		try {
 			const url = new URL(request.url);
 
-			// Upload endpoint
-			if (url.pathname === '/upload' && request.method === 'POST') {
-				// Check authentication
+			// Initialize chunked upload using R2 multipart
+			if (url.pathname === '/upload/init' && request.method === 'POST') {
 				const auth = request.headers.get('Authorization');
 				if (!auth || auth !== `Bearer ${env.SAIL2GETHER_R2_SECRET}`) {
 					return new Response(JSON.stringify({ error: 'Unauthorized' }), {
 						status: 401,
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
 					});
 				}
 
-				// Parse form data
+				const { filename, fileSize, totalChunks } = (await request.json()) as {
+					filename: string;
+					fileSize: number;
+					totalChunks: number;
+				};
+
+				if (fileSize > MAX_FILE_SIZE) {
+					return new Response(JSON.stringify({ error: 'File too large', maxSize: MAX_FILE_SIZE }), {
+						status: 413,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const sessionId = crypto.randomUUID();
+				const timestamp = Date.now();
+				const randomStr = Math.random().toString(36).substring(2, 8);
+				const sanitizedName = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+				const key = `videos/${timestamp}-${randomStr}-${sanitizedName}`;
+
+				// Create R2 multipart upload
+				const multipartUpload = await env.SAIL2GETHER_BUCKET.createMultipartUpload(key, {
+					httpMetadata: {
+						contentType: 'video/mp4',
+					},
+					customMetadata: {
+						originalName: filename,
+						uploadedAt: new Date().toISOString(),
+						fileSize: fileSize.toString(),
+						fileType: 'video',
+					},
+				});
+
+				const metadata: UploadMetadata = {
+					key,
+					filename,
+					fileSize,
+					totalChunks,
+					uploadId: multipartUpload.uploadId,
+					parts: [],
+					createdAt: Date.now(),
+				};
+
+				await env.SAIL2GETHER_UPLOAD_METADATA.put(sessionId, JSON.stringify(metadata), {
+					expirationTtl: UPLOAD_EXPIRY,
+				});
+
+				return new Response(
+					JSON.stringify({
+						uploadId: sessionId,
+						key,
+						r2UploadId: multipartUpload.uploadId,
+					}),
+					{ headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+				);
+			}
+
+			// Upload chunk using R2 multipart
+			if (url.pathname === '/upload/chunk' && request.method === 'PUT') {
+				const auth = request.headers.get('Authorization');
+				if (!auth || auth !== `Bearer ${env.SAIL2GETHER_R2_SECRET}`) {
+					return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+						status: 401,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const uploadId = url.searchParams.get('uploadId');
+				const partNumberString = url.searchParams.get('partNumber');
+
+				if (!uploadId || !partNumberString) {
+					return new Response(JSON.stringify({ error: 'Missing uploadId or partNumber' }), {
+						status: 400,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				if (!request.body) {
+					return new Response(JSON.stringify({ error: 'Missing request body' }), {
+						status: 400,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const metadataJson = await env.SAIL2GETHER_UPLOAD_METADATA.get(uploadId);
+				if (!metadataJson) {
+					return new Response(JSON.stringify({ error: 'Upload not found or expired' }), {
+						status: 404,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const metadata: UploadMetadata = JSON.parse(metadataJson);
+				const partNumber = parseInt(partNumberString, 10);
+
+				// Resume the multipart upload and upload the part
+				const multipartUpload = env.SAIL2GETHER_BUCKET.resumeMultipartUpload(metadata.key, metadata.uploadId);
+
+				try {
+					const uploadedPart: R2UploadedPart = await multipartUpload.uploadPart(partNumber, request.body);
+
+					// Store part info
+					metadata.parts.push(uploadedPart);
+					metadata.parts.sort((a, b) => a.partNumber - b.partNumber);
+
+					await env.SAIL2GETHER_UPLOAD_METADATA.put(uploadId, JSON.stringify(metadata), {
+						expirationTtl: UPLOAD_EXPIRY,
+					});
+
+					return new Response(
+						JSON.stringify({
+							success: true,
+							partNumber: uploadedPart.partNumber,
+							etag: uploadedPart.etag,
+							uploadedChunks: metadata.parts.length,
+							totalChunks: metadata.totalChunks,
+						}),
+						{ headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+					);
+				} catch (error: any) {
+					return new Response(JSON.stringify({ error: error.message || 'Failed to upload part' }), {
+						status: 400,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+			}
+
+			// Complete chunked upload
+			if (url.pathname === '/upload/complete' && request.method === 'POST') {
+				const auth = request.headers.get('Authorization');
+				if (!auth || auth !== `Bearer ${env.SAIL2GETHER_R2_SECRET}`) {
+					return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+						status: 401,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const { uploadId } = (await request.json()) as { uploadId: string };
+
+				const metadataJson = await env.SAIL2GETHER_UPLOAD_METADATA.get(uploadId);
+				if (!metadataJson) {
+					return new Response(JSON.stringify({ error: 'Upload metadata not found' }), {
+						status: 404,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const metadata: UploadMetadata = JSON.parse(metadataJson);
+
+				// Verify all chunks uploaded
+				if (metadata.parts.length !== metadata.totalChunks) {
+					return new Response(
+						JSON.stringify({
+							error: 'Incomplete upload',
+							uploaded: metadata.parts.length,
+							total: metadata.totalChunks,
+						}),
+						{ status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+					);
+				}
+
+				// Resume and complete the multipart upload on R2
+				const multipartUpload = env.SAIL2GETHER_BUCKET.resumeMultipartUpload(metadata.key, metadata.uploadId);
+
+				try {
+					const object = await multipartUpload.complete(metadata.parts);
+
+					// Clean up metadata
+					await env.SAIL2GETHER_UPLOAD_METADATA.delete(uploadId);
+
+					const fileUrl = `${env.SAIL2GETHER_PUBLIC_URL}/${metadata.key}`;
+
+					return new Response(
+						JSON.stringify({
+							success: true,
+							url: fileUrl,
+							key: metadata.key,
+							size: metadata.fileSize,
+							etag: object.httpEtag,
+						}),
+						{ headers: { 'Content-Type': 'application/json', ...corsHeaders } }
+					);
+				} catch (error: any) {
+					return new Response(JSON.stringify({ error: error.message || 'Failed to complete upload' }), {
+						status: 400,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+			}
+
+			// Abort multipart upload
+			if (url.pathname === '/upload/abort' && request.method === 'DELETE') {
+				const auth = request.headers.get('Authorization');
+				if (!auth || auth !== `Bearer ${env.SAIL2GETHER_R2_SECRET}`) {
+					return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+						status: 401,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const uploadId = url.searchParams.get('uploadId');
+				if (!uploadId) {
+					return new Response(JSON.stringify({ error: 'Missing uploadId' }), {
+						status: 400,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const metadataJson = await env.SAIL2GETHER_UPLOAD_METADATA.get(uploadId);
+				if (!metadataJson) {
+					return new Response(JSON.stringify({ error: 'Upload not found' }), {
+						status: 404,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
+				const metadata: UploadMetadata = JSON.parse(metadataJson);
+
+				const multipartUpload = env.SAIL2GETHER_BUCKET.resumeMultipartUpload(metadata.key, metadata.uploadId);
+
+				try {
+					await multipartUpload.abort();
+					await env.SAIL2GETHER_UPLOAD_METADATA.delete(uploadId);
+
+					return new Response(null, {
+						status: 204,
+						headers: corsHeaders,
+					});
+				} catch (error: any) {
+					return new Response(JSON.stringify({ error: error.message || 'Failed to abort upload' }), {
+						status: 400,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+			}
+
+			// Original upload endpoint (for small files and subtitles)
+			if (url.pathname === '/upload' && request.method === 'POST') {
+				const auth = request.headers.get('Authorization');
+				if (!auth || auth !== `Bearer ${env.SAIL2GETHER_R2_SECRET}`) {
+					return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+						status: 401,
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
+					});
+				}
+
 				const formData = await request.formData();
 				const file = formData.get('file');
-				const fileType = formData.get('type') as string | null; // 'video' or 'subtitle'
+				const fileType = formData.get('type') as string | null;
 
 				if (!file || !(file instanceof File)) {
 					return new Response(JSON.stringify({ error: 'No file provided' }), {
 						status: 400,
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
 					});
 				}
 
@@ -73,7 +315,6 @@ export default {
 				const allowedTypes = isSubtitle ? ALLOWED_SUBTITLE_TYPES : ALLOWED_VIDEO_TYPES;
 				const prefix = isSubtitle ? 'subtitles' : 'videos';
 
-				// Validate file size
 				if (file.size > maxSize) {
 					return new Response(
 						JSON.stringify({
@@ -81,17 +322,10 @@ export default {
 							maxSize: maxSize,
 							actualSize: file.size,
 						}),
-						{
-							status: 413,
-							headers: {
-								'Content-Type': 'application/json',
-								...corsHeaders,
-							},
-						}
+						{ status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
 					);
 				}
 
-				// Validate content type (more lenient for subtitles as they might be sent as text/plain)
 				if (file.type && !allowedTypes.includes(file.type) && !isSubtitle) {
 					return new Response(
 						JSON.stringify({
@@ -99,27 +333,18 @@ export default {
 							allowedTypes: allowedTypes,
 							receivedType: file.type,
 						}),
-						{
-							status: 415,
-							headers: {
-								'Content-Type': 'application/json',
-								...corsHeaders,
-							},
-						}
+						{ status: 415, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
 					);
 				}
 
-				// Generate unique filename
 				const timestamp = Date.now();
 				const randomStr = Math.random().toString(36).substring(2, 8);
 				const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
 				const key = `${prefix}/${timestamp}-${randomStr}-${sanitizedName}`;
 
-				// Upload to R2
 				let fileData: ArrayBuffer | string = await file.arrayBuffer();
 				let contentType = isSubtitle ? 'text/vtt' : file.type || 'video/mp4';
 
-				// Convert SRT to VTT if needed
 				if (isSubtitle && (file.name.toLowerCase().endsWith('.srt') || file.type.includes('subrip'))) {
 					const textDecoder = new TextDecoder('utf-8');
 					const srtContent = textDecoder.decode(fileData as ArrayBuffer);
@@ -128,9 +353,7 @@ export default {
 				}
 
 				await env.SAIL2GETHER_BUCKET.put(key, fileData, {
-					httpMetadata: {
-						contentType: contentType,
-					},
+					httpMetadata: { contentType: contentType },
 					customMetadata: {
 						originalName: file.name,
 						uploadedAt: new Date().toISOString(),
@@ -139,7 +362,6 @@ export default {
 					},
 				});
 
-				// Return R2 public URL
 				const fileUrl = `${env.SAIL2GETHER_PUBLIC_URL}/${key}`;
 
 				return new Response(
@@ -150,38 +372,25 @@ export default {
 						size: file.size,
 						type: file.type,
 					}),
-					{
-						status: 200,
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
-					}
+					{ status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
 				);
 			}
 
-			// Direct video streaming endpoint (handles /videos/... URLs)
+			// Direct video streaming endpoint
 			if ((url.pathname.startsWith('/videos/') || url.pathname.startsWith('/subtitles/')) && request.method === 'GET') {
-				const key = url.pathname.substring(1); // Remove leading '/' to get 'videos/...' or 'subtitles/...'
-
+				const key = url.pathname.substring(1);
 				const object = await env.SAIL2GETHER_BUCKET.get(key);
 
 				if (!object) {
 					return new Response(JSON.stringify({ error: 'File not found' }), {
 						status: 404,
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
 					});
 				}
 
 				const isSubtitle = key.startsWith('subtitles/');
-
-				// Get range header for video seeking support
 				const range = request.headers.get('Range');
 
-				// Return the file with proper headers
 				const headers = new Headers({
 					...corsHeaders,
 					'Content-Type': isSubtitle ? 'text/vtt' : object.httpMetadata?.contentType || 'video/mp4',
@@ -190,7 +399,6 @@ export default {
 				});
 
 				if (range) {
-					// Handle range requests for video seeking
 					const parts = range.replace(/bytes=/, '').split('-');
 					const start = parseInt(parts[0], 10);
 					const end = parts[1] ? parseInt(parts[1], 10) : object.size - 1;
@@ -199,18 +407,11 @@ export default {
 					headers.set('Content-Range', `bytes ${start}-${end}/${object.size}`);
 					headers.set('Content-Length', chunkSize.toString());
 
-					return new Response(object.body, {
-						status: 206,
-						headers,
-					});
+					return new Response(object.body, { status: 206, headers });
 				}
 
 				headers.set('Content-Length', object.size.toString());
-
-				return new Response(object.body, {
-					status: 200,
-					headers,
-				});
+				return new Response(object.body, { status: 200, headers });
 			}
 
 			// List videos endpoint
@@ -238,60 +439,38 @@ export default {
 						truncated: listed.truncated,
 						cursor: listed.cursor,
 					}),
-					{
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
-					}
+					{ headers: { 'Content-Type': 'application/json', ...corsHeaders } }
 				);
 			}
 
-			// Delete video endpoint (optional - for cleanup)
+			// Delete video endpoint
 			if (url.pathname === '/delete' && request.method === 'POST') {
-				// Check authentication
 				const auth = request.headers.get('Authorization');
 				if (!auth || auth !== `Bearer ${env.SAIL2GETHER_R2_SECRET}`) {
-					console.error('Unauthorized delete attempt');
 					return new Response(JSON.stringify({ error: 'Unauthorized' }), {
 						status: 401,
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
 					});
 				}
 
 				const { key } = (await request.json()) as { key: string };
 
 				if (!key || (!key.startsWith('videos/') && !key.startsWith('subtitles/'))) {
-					console.error('Invalid key:', key);
 					return new Response(JSON.stringify({ error: 'Invalid key', received: key }), {
 						status: 400,
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
+						headers: { 'Content-Type': 'application/json', ...corsHeaders },
 					});
 				}
 
-				// Verify object exists before deleting
 				const objectToDelete = await env.SAIL2GETHER_BUCKET.get(key);
 				if (!objectToDelete) {
-					console.warn('Object not found:', key);
 					return new Response(
 						JSON.stringify({
 							success: false,
 							error: 'Object not found',
 							key: key,
 						}),
-						{
-							status: 404,
-							headers: {
-								'Content-Type': 'application/json',
-								...corsHeaders,
-							},
-						}
+						{ status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
 					);
 				}
 
@@ -305,23 +484,13 @@ export default {
 						message: `${fileType} deleted`,
 						key: key,
 					}),
-					{
-						status: 200,
-						headers: {
-							'Content-Type': 'application/json',
-							...corsHeaders,
-						},
-					}
+					{ status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
 				);
 			}
 
-			// Route not found
 			return new Response(JSON.stringify({ error: 'Not found' }), {
 				status: 404,
-				headers: {
-					'Content-Type': 'application/json',
-					...corsHeaders,
-				},
+				headers: { 'Content-Type': 'application/json', ...corsHeaders },
 			});
 		} catch (error) {
 			console.error('Worker error:', error);
@@ -330,13 +499,7 @@ export default {
 					error: 'Internal server error',
 					message: error instanceof Error ? error.message : 'Unknown error',
 				}),
-				{
-					status: 500,
-					headers: {
-						'Content-Type': 'application/json',
-						...corsHeaders,
-					},
-				}
+				{ status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
 			);
 		}
 	},

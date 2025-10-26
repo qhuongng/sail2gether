@@ -33,7 +33,17 @@
 	 * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
 	 */
 	// Paste the public URL here after setting up your R2 bucket
-	"vars": { "SAIL2GETHER_PUBLIC_URL": "https://pub-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.r2.dev" }
+	"vars": { "SAIL2GETHER_PUBLIC_URL": "https://pub-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.r2.dev" },
+
+	// This should be automatically generated when you create the KV namespace using the Wrangler CLI
+	// If you created one in the Cloudflare Dashboard, you will need to get the ID from there
+	"kv_namespaces": [
+		{
+			"binding": "SAIL2GETHER_UPLOAD_METADATA",
+			"id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+			"remote": true
+		}
+	]
 	/**
 	 * Note: Use secrets to store sensitive data.
 	 * https://developers.cloudflare.com/workers/configuration/secrets/

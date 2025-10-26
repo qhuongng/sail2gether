@@ -13,6 +13,9 @@ import Button from "@/components/button";
 import TextInput from "@/components/text-input";
 import VideoPlayer from "@/components/video-player";
 
+// Chunk size: 80MB (safely under the 100MB limit of free Cloudflare workers with overhead)
+const CHUNK_SIZE = 80 * 1024 * 1024;
+
 function Room() {
     const { id: roomId } = useParams<{ id: string }>();
 
@@ -38,6 +41,7 @@ function Room() {
     const subtitlesInputRef = useRef<HTMLInputElement>(null);
     const lastSyncTime = useRef<number>(0);
     const lastUpdateTimestamp = useRef<number>(0);
+    const uploadAbortController = useRef<AbortController | null>(null);
 
     // Check if room exists in Firebase
     useEffect(() => {
@@ -96,10 +100,17 @@ function Room() {
         }
     };
 
-    // Upload file to Cloudflare R2
+    // Upload file to Cloudflare R2 with chunking
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        console.log(
+            "File selected:",
+            file.name,
+            "Size:",
+            (file.size / 1024 / 1024).toFixed(2) + "MB"
+        );
 
         // Check file size
         const maxSize = 4 * 1024 * 1024 * 1024; // 4GB
@@ -110,64 +121,213 @@ function Room() {
 
         setUploading(true);
         setUploadProgress(0);
+        uploadAbortController.current = new AbortController();
 
         try {
-            const formData = new FormData();
-            formData.append("file", file);
-            formData.append("type", "video");
+            // If file is small enough, use direct upload
+            if (file.size <= CHUNK_SIZE) {
+                console.log("Using direct upload (file <= 80MB)");
+                await directUpload(file);
+            } else {
+                console.log("Using chunked upload (file > 80MB)");
+                await chunkedUpload(file);
+            }
+        } catch (error) {
+            if (error instanceof Error && error.name === "AbortError") {
+                showToast("Upload cancelled.", "info");
+            } else {
+                console.error("Upload error:", error);
+                showToast(
+                    `I couldn't get your video uploaded—${
+                        error instanceof Error ? error.message : "and I don't even know why. 😔"
+                    }`,
+                    "error"
+                );
+            }
+        } finally {
+            setUploading(false);
+            setUploadProgress(0);
+            uploadAbortController.current = null;
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+        }
+    };
 
-            // Create XMLHttpRequest for progress tracking
-            const xhr = new XMLHttpRequest();
+    // Direct upload for small files
+    const directUpload = async (file: File): Promise<void> => {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("type", "video");
 
-            // Track upload progress
-            xhr.upload.addEventListener("progress", (e) => {
-                if (e.lengthComputable) {
-                    const percentComplete = (e.loaded / e.total) * 100;
-                    setUploadProgress(Math.round(percentComplete));
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+                const percentComplete = (e.loaded / e.total) * 100;
+                setUploadProgress(Math.round(percentComplete));
+            }
+        });
+
+        const uploadPromise = new Promise<string>((resolve, reject) => {
+            xhr.addEventListener("load", () => {
+                if (xhr.status === 200) {
+                    const response = JSON.parse(xhr.responseText);
+                    resolve(response.url);
+                } else {
+                    reject(new Error(`Upload failed: ${xhr.statusText}`));
                 }
             });
 
-            // Handle completion
-            const uploadPromise = new Promise<string>((resolve, reject) => {
+            xhr.addEventListener("error", () => {
+                reject(new Error("Upload failed"));
+            });
+
+            xhr.addEventListener("abort", () => {
+                reject(new Error("Upload cancelled"));
+            });
+
+            // Handle abort signal
+            uploadAbortController.current?.signal.addEventListener("abort", () => {
+                xhr.abort();
+            });
+        });
+
+        xhr.open("POST", `${WORKER_URL}/upload`);
+        xhr.setRequestHeader("Authorization", `Bearer ${UPLOAD_SECRET}`);
+        xhr.send(formData);
+
+        const uploadedUrl = await uploadPromise;
+        setVideoUrl(uploadedUrl);
+        showToast('Upload successful! Click "Set video" to finish and enjoy. 🍿', "success");
+    };
+
+    // Chunked upload for large files
+    const chunkedUpload = async (file: File): Promise<void> => {
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+        console.log(
+            `Starting chunked upload: ${file.name}, Size: ${(file.size / 1024 / 1024).toFixed(
+                2
+            )}MB, Chunks: ${totalChunks}`
+        );
+
+        // Step 1: Initialize multipart upload
+        const initResponse = await fetch(`${WORKER_URL}/upload/init`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${UPLOAD_SECRET}`,
+            },
+            body: JSON.stringify({
+                filename: file.name,
+                fileSize: file.size,
+                totalChunks: totalChunks,
+            }),
+            signal: uploadAbortController.current?.signal,
+        });
+
+        if (!initResponse.ok) {
+            const errorText = await initResponse.text();
+            console.error("Init upload failed:", initResponse.status, errorText);
+            throw new Error(`Failed to initialize upload: ${initResponse.status}`);
+        }
+
+        const { uploadId } = await initResponse.json();
+        console.log(`Upload initialized: ${uploadId}`);
+
+        // Step 2: Upload chunks using PUT with progress tracking
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+            const start = chunkIndex * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunk = file.slice(start, end);
+            const partNumber = chunkIndex + 1;
+
+            console.log(`Uploading part ${partNumber}/${totalChunks}`);
+
+            // Use XMLHttpRequest for progress tracking
+            await new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+
+                // Track chunk upload progress
+                xhr.upload.addEventListener("progress", (e) => {
+                    if (e.lengthComputable) {
+                        // Calculate overall progress:
+                        // (completed chunks + current chunk progress) / total chunks
+                        const completedChunks = chunkIndex;
+                        const currentChunkProgress = e.loaded / e.total;
+                        const overallProgress =
+                            ((completedChunks + currentChunkProgress) / totalChunks) * 100;
+                        setUploadProgress(Math.round(overallProgress));
+                    }
+                });
+
                 xhr.addEventListener("load", () => {
                     if (xhr.status === 200) {
-                        const response = JSON.parse(xhr.responseText);
-                        resolve(response.url);
+                        resolve();
                     } else {
-                        reject(new Error(`Upload failed: ${xhr.statusText}`));
+                        reject(
+                            new Error(
+                                `Failed to upload chunk ${partNumber}/${totalChunks}: ${xhr.statusText}`
+                            )
+                        );
                     }
                 });
 
                 xhr.addEventListener("error", () => {
-                    reject(new Error("Upload failed"));
+                    reject(new Error(`Network error uploading chunk ${partNumber}/${totalChunks}`));
                 });
 
                 xhr.addEventListener("abort", () => {
                     reject(new Error("Upload cancelled"));
                 });
+
+                // Handle abort signal
+                uploadAbortController.current?.signal.addEventListener("abort", () => {
+                    xhr.abort();
+                });
+
+                xhr.open(
+                    "PUT",
+                    `${WORKER_URL}/upload/chunk?uploadId=${encodeURIComponent(
+                        uploadId
+                    )}&partNumber=${partNumber}`
+                );
+                xhr.setRequestHeader("Authorization", `Bearer ${UPLOAD_SECRET}`);
+                xhr.send(chunk);
             });
+        }
 
-            xhr.open("POST", `${WORKER_URL}/upload`);
-            xhr.setRequestHeader("Authorization", `Bearer ${UPLOAD_SECRET}`);
-            xhr.send(formData);
+        console.log("All chunks uploaded, completing...");
 
-            const uploadedUrl = await uploadPromise;
-            setVideoUrl(uploadedUrl);
-            showToast('Upload successful! Click "Set video" to finish and enjoy. 🍿', "success");
-        } catch (error) {
-            console.error("Upload error:", error);
-            showToast(
-                `I couldn't get your video uploaded—${
-                    error instanceof Error ? error.message : "and I don't even know why. 😔"
-                }`,
-                "error"
-            );
-        } finally {
-            setUploading(false);
-            setUploadProgress(0);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = "";
-            }
+        // Step 3: Complete upload
+        const completeResponse = await fetch(`${WORKER_URL}/upload/complete`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${UPLOAD_SECRET}`,
+            },
+            body: JSON.stringify({
+                uploadId: uploadId,
+            }),
+            signal: uploadAbortController.current?.signal,
+        });
+
+        if (!completeResponse.ok) {
+            const errorText = await completeResponse.text();
+            console.error("Complete failed:", errorText);
+            throw new Error("Failed to complete upload");
+        }
+
+        const { url } = await completeResponse.json();
+        setVideoUrl(url);
+        showToast('Upload successful! Click "Set video" to finish and enjoy. 🍿', "success");
+    };
+
+    // Cancel upload
+    const cancelUpload = (): void => {
+        if (uploadAbortController.current) {
+            uploadAbortController.current.abort();
         }
     };
 
@@ -434,7 +594,6 @@ function Room() {
                         // Store for debugging
                         if (lastUpdateTimestamp.current !== data.clientTimestamp) {
                             lastUpdateTimestamp.current = data.clientTimestamp;
-                            // console.log(`Viewer: Measured latency = ${measuredLatency}ms, compensation = ${latencyCompensation}s`);
                         }
                     }
 
@@ -539,64 +698,75 @@ function Room() {
             </div>
 
             {isHost && !currentVideoUrl && (
-                <div className="mb-5 mt-8">
+                <div className="mb-5 mt-8 flex flex-col">
                     <p className="mb-8">
                         Congrats! You've got a room! Now please provide a video for your watch
                         party.
                     </p>
 
-                    <div className="mb-5">
-                        <h4 className="text-lg font-semibold mb-2">Option 1: Upload file</h4>
-                        <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="video/*"
-                            onChange={handleFileUpload}
-                            disabled={uploading}
-                            className="w-full file-input file-input-bordered border-neutral-400 hover:border-base-300 mb-2.5"
-                        />
-                        {uploading && (
-                            <div>
-                                <div className="w-full border-2 mb-2.5 h-5 z-10 overflow-hidden">
-                                    <div
-                                        className="bg-success h-full transition-all duration-300"
-                                        style={{ width: `${uploadProgress}%` }}
-                                    />
+                    <div className="border-2 border-base-300 p-4 mb-5">
+                        <div className="mb-5">
+                            <h4 className="text-lg font-semibold mb-2">Option 1: Upload file</h4>
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="video/*"
+                                onChange={handleFileUpload}
+                                disabled={uploading}
+                                className="w-full file-input file-input-bordered border-neutral-400 hover:border-base-300 mb-2.5"
+                            />
+                            {uploading && (
+                                <div>
+                                    <div className="w-full border-2 mb-2.5 h-5 z-10 overflow-hidden">
+                                        <div
+                                            className="bg-success h-full transition-all duration-300"
+                                            style={{ width: `${uploadProgress}%` }}
+                                        />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <p>Uploading: {uploadProgress}%</p>
+                                        <Button
+                                            variant="error"
+                                            onClick={cancelUpload}
+                                            className="text-sm"
+                                        >
+                                            Cancel
+                                        </Button>
+                                    </div>
                                 </div>
-                                <p>Uploading: {uploadProgress}%</p>
-                            </div>
-                        )}
+                            )}
+                        </div>
+
+                        <div>
+                            <h4 className="text-lg font-semibold text-info mb-2">
+                                Optional: Upload subtitle file
+                            </h4>
+                            <input
+                                ref={subtitlesInputRef}
+                                type="file"
+                                accept=".vtt,.srt"
+                                onChange={handleSubtitleUpload}
+                                disabled={uploadingSubtitles}
+                                className="w-full file-input file-input-bordered border-neutral-400 hover:border-base-300 mb-2.5"
+                            />
+                            {uploadingSubtitles && (
+                                <div>
+                                    <div className="w-full border-2 mb-2.5 h-5 z-10 overflow-hidden">
+                                        <div
+                                            className="bg-info h-full transition-all duration-300"
+                                            style={{ width: `${subtitlesUploadProgress}%` }}
+                                        />
+                                    </div>
+                                    <p>Uploading subtitles: {subtitlesUploadProgress}%</p>
+                                </div>
+                            )}
+                            {subtitlesUrl && !uploadingSubtitles && (
+                                <p className="text-success text-sm">✓ Subtitle file ready</p>
+                            )}
+                        </div>
                     </div>
 
-                    <div className="mb-5">
-                        <h4 className="text-lg font-semibold text-info mb-2">
-                            Optional: Upload subtitle file
-                        </h4>
-                        <input
-                            ref={subtitlesInputRef}
-                            type="file"
-                            accept=".vtt,.srt"
-                            onChange={handleSubtitleUpload}
-                            disabled={uploadingSubtitles}
-                            className="w-full file-input file-input-bordered border-neutral-400 hover:border-base-300 mb-2.5"
-                        />
-                        {uploadingSubtitles && (
-                            <div>
-                                <div className="w-full border-2 mb-2.5 h-5 z-10 overflow-hidden">
-                                    <div
-                                        className="bg-info h-full transition-all duration-300"
-                                        style={{ width: `${subtitlesUploadProgress}%` }}
-                                    />
-                                </div>
-                                <p>Uploading subtitles: {subtitlesUploadProgress}%</p>
-                            </div>
-                        )}
-                        {subtitlesUrl && !uploadingSubtitles && (
-                            <p className="text-success text-sm">✓ Subtitle file ready</p>
-                        )}
-                    </div>
-
-                    <div>
+                    <div className="border-2 border-base-300 p-4 mb-5">
                         <h4 className="text-lg font-semibold mb-2">Option 2: Enter video URL</h4>
                         <div className="flex gap-2.5">
                             <TextInput
@@ -604,11 +774,12 @@ function Room() {
                                 value={videoUrl}
                                 onChange={(e) => setVideoUrl(e.target.value)}
                             />
-                            <Button disabled={!videoUrl} onClick={setRoomVideoUrl}>
-                                Set video
-                            </Button>
                         </div>
                     </div>
+
+                    <Button className="ml-auto" disabled={!videoUrl} onClick={setRoomVideoUrl}>
+                        Set video
+                    </Button>
                 </div>
             )}
 

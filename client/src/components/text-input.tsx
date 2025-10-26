@@ -12,7 +12,7 @@ const TextInput: React.FC<TextInputProps> = ({ placeholder, value, onChange, cla
             placeholder={placeholder}
             value={value}
             onChange={onChange}
-            className={`w-full border-2 px-2 border-neutral-400 focus:border-base-300 text-sm focus:outline-0 placeholder:text-base-content placeholder:opacity-40 ${className}`}
+            className={`input w-full border-2 px-2 border-neutral-400 focus:border-base-300 text-sm focus:outline-0 placeholder:text-base-content placeholder:opacity-40 ${className}`}
         />
     );
 };

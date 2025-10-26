@@ -50,6 +50,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const [tooltipTime, setTooltipTime] = useState(0);
     const [tooltipPosition, setTooltipPosition] = useState(0);
     const [subtitlesEnabled, setSubtitlesEnabled] = useState(false);
+    const [timeDisplayWidth, setTimeDisplayWidth] = useState("");
 
     // Initialize subtitle track state
     useEffect(() => {
@@ -113,6 +114,33 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }
         }
     }, [showControls, videoRef, subtitlesUrl, isFullscreen]);
+
+    useEffect(() => {
+        const video = videoRef?.current;
+
+        if (!video) return;
+
+        const handleLoadedMetadata = () => {
+            if (timeDisplayWidth === "" && Number.isFinite(video.duration)) {
+                // Calculate the width for the time display based on max video duration
+                const duration = String(formatVideoTime(video.duration));
+                setTimeDisplayWidth(duration.length * 2 + 3 + "ch"); // Account for the slash
+            }
+        };
+
+        // If metadata is already loaded, calculate immediately
+        if (Number.isFinite(video.duration) && timeDisplayWidth === "") {
+            const duration = String(formatVideoTime(video.duration));
+            setTimeDisplayWidth(duration.length * 2 + 3 + "ch");
+        } else {
+            // Otherwise, wait for the event
+            video.addEventListener("loadedmetadata", handleLoadedMetadata);
+        }
+
+        return () => {
+            video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+        };
+    }, [videoRef, timeDisplayWidth]);
 
     useEffect(() => {
         const video = videoRef?.current;
@@ -442,7 +470,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 )}
 
                 {/* Time display */}
-                <div className={`text-sm whitespace-nowrap ${isHost ? "" : "ml-1"}`}>
+                <div
+                    className={`text-sm whitespace-nowrap ${isHost ? "" : "ml-1"}`}
+                    style={{ minWidth: timeDisplayWidth }}
+                >
                     {formatVideoTime(progressValue)} / {formatVideoTime(progressMax)}
                 </div>
 
@@ -462,7 +493,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
                     {/* Progress bar */}
                     <div
-                        className="progress w-full h-5 border-2 border-base-300 ml-1 overflow-hidden"
+                        className="progress w-full ml-auto h-5 border-2 border-base-300 overflow-hidden"
                         onMouseMove={handleProgressMouseMove}
                         onMouseLeave={handleProgressMouseLeave}
                     >
