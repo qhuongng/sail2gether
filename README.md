@@ -32,21 +32,30 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 
     -   First, [create a Firebase project](https://support.google.com/appsheet/answer/10104995?hl=en). In the Firebase Console for your project, click **+ Add app**, add a **web app** and copy the configuration object to set up the client later.
     -   Then, [enable the Realtime Database](https://firebase.google.com/docs/database/web/start) for your project. In the Firebase Console for your project, select **Build > Realtime Database** from the sidebar, click the **Rules** tab and edit the rules as follows:
-        ```json
+    
+        ```js
         {
-            "rules": {
-                "rooms": {
-                    "$roomId": {
-                        ".read": true,
-                        ".write": true,
-                        ".validate": "newData.hasChildren(['hostId', 'videoUrl', 'isPlaying', 'currentTime', 'playbackRate'])"
-                    }
-                }
+          "rules": {
+            "rooms": {
+              "$roomId": {
+                ".read": true,
+                ".write": true,
+                ".validate": "newData.hasChildren(['hostId', 'videoUrl', 'lastUpdate']) && 
+                              newData.child('hostId').isString() && 
+                              newData.child('videoUrl').isString() &&
+                              (!newData.hasChild('isPlaying') || newData.child('isPlaying').isBoolean()) &&
+                              (!newData.hasChild('currentTime') || newData.child('currentTime').isNumber()) &&
+                              (!newData.hasChild('playbackRate') || newData.child('playbackRate').isNumber()) &&
+                              (!newData.hasChild('subtitlesUrl') || newData.child('subtitlesUrl').isString()) &&
+                              (!newData.hasChild('clientTimestamp') || newData.child('clientTimestamp').isNumber())"
+              }
             }
+          }
         }
         ```
     -   Copy the database URL from the **Data** tab to set up the client later.
     -   If you want to deploy the app to Firebase later, install the Firebase CLI as well:
+    
         ```bash
         npm install -g firebase-tools
         ```
@@ -69,11 +78,11 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 -   With a terminal opened in the `r2_worker` directory, generate a secret for your bucket to use as authentication for upload requests.
 
     ```bash
-        npx wrangler secret put "SAIL2GETHER_R2_SECRET"
+    npx wrangler secret put "SAIL2GETHER_R2_SECRET"
 
-        # alternatively, if you don't have Wrangler CLI installed
+    # alternatively, if you don't have Wrangler CLI installed
 
-        npx wrangler secret put "SAIL2GETHER_R2_SECRET"
+    npx wrangler secret put "SAIL2GETHER_R2_SECRET"
     ```
 
     -   Enter your secret according to the terminal prompt. Keep this value to set up the client later.
@@ -81,11 +90,11 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 -   Create a KV namespace for multipart uploading metadata:
 
     ```bash
-        wrangler kv namespace create "SAIL2GETHER_UPLOAD_METADATA"
+    wrangler kv namespace create "SAIL2GETHER_UPLOAD_METADATA"
 
-        # alternatively, if you don't have Wrangler CLI installed
+    # alternatively, if you don't have Wrangler CLI installed
 
-        npx wrangler kv namespace create "SAIL2GETHER_UPLOAD_METADATA"
+    npx wrangler kv namespace create "SAIL2GETHER_UPLOAD_METADATA"
     ```
 
     -   Follow the terminal prompts to complete setup and generate a binding from the namespace to your bucket in `wrangler.jsonc`.
@@ -107,16 +116,19 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 -   Make a copy of the `config.example.ts` file in the `client/src/constants` directory and rename it `config.ts`.
 -   Replace the values with yours (the localStorage key doesn't need to be replaced).
 -   Install dependencies:
+
     ```bash
     npm install
     ```
 -   Run the project locally:
+
     ```bash
     npm run dev
     ```
 -   Alternatively, if you want to deploy the project to Firebase:
 
     -   Log into Firebase using the CLI:
+    
         ```bash
         firebase login
         ```
@@ -130,6 +142,7 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
         -   Ensure that the public directory is set up as `dist`, the deployment is configured as a _single-page app_, and GitHub automatic builds and deploys is **not** enabled.
 
     -   Run the deploy command:
+    
         ```bash
         npm run deploy
         ```
