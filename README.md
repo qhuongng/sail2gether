@@ -70,10 +70,6 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 
 #### Setting up and deploying the worker
 
--   Please refer to [this turorial by Cloudflare](https://developers.cloudflare.com/workers/tutorials/upload-assets-with-r2/) to set up the secret variable `SAIL2GETHER_R2_SECRET` for your worker. This will involve installing the Wrangler CLI, or you can use `npx wrangler` instead.
-
-    -   Keep the secret for setting up the client later.
-
 -   Make a copy of the `wrangler.example.jsonc` and rename it `wrangler.jsonc`. Modify the values according to the comments in the file, including the compatibility date, the bucket name, and the public URL.
 -   With a terminal opened in the `r2_worker` directory, generate a secret for your bucket to use as authentication for upload requests.
 
