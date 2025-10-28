@@ -146,4 +146,6 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 
 ## To-do
 
-After writing this README, I realized that getting this thing set up and running is a total nightmare LOL. I might or might not make a fully local version of this someday, or at least make use of services that require less setup (Google Drive 👀).
+- Make use of Google's YouTube Iframe Player API to allow for syncing playback of videos hosted on YouTube. Also find ways to sanitize iframes from other pages before embedding them to make them safe, ad-free, and controllable.
+- Look into options that allow for *streaming* local files instead of having to upload them to a file store (which takes so much time smh).
+- Maybe reduce external dependency complexity by making sure all the external services come from the same vendor. This README is freaking even me out.
