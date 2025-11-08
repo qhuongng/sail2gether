@@ -13,8 +13,9 @@ import {
     removeHostedRoomFromStorage,
 } from "@/utils/helpers";
 
-import iconImage from "@/assets/icons/apple-touch-icon.png";
+import iconImage from "@/assets/images/logo.png";
 import Button from "@/components/button";
+import InstallPWA from "@/components/install-pwa";
 import Modal from "@/components/modal";
 import TextInput from "@/components/text-input";
 
@@ -234,6 +235,9 @@ function Home() {
                 <Link to="/faq" className="text-lg font-bold hover:underline mb-auto">
                     ?
                 </Link>
+                <div className="ml-auto">
+                    <InstallPWA />
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">

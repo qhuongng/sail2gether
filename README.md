@@ -8,7 +8,7 @@ As for why it's named similar to a certain service with similar functionality...
 
 This repo consists of a **client** and a **Cloudflare worker**, which is part of the 'back end'.
 
-The client is a **React + Vite + TypeScript** web app, where the user can host a room to watch videos in sync with other people. The user can also join existing rooms by entering the room ID, or via a share link. Hosts will be able to set a video in a room by uploading a local file (with the option to include a subtitle file), or by linking a video URL.
+The client is a **React + Vite + TypeScript** web app, where the user can host a room to watch videos in sync with other people. The user can also join existing rooms by entering the room ID, or via a share link. Hosts will be able to set a video in a room by uploading a local file (with the option to include a subtitle file), or by linking a video URL. The user can also install the client as a PWA on their device.
 
 The 'back end' includes two services:
 
@@ -32,7 +32,7 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 
     -   First, [create a Firebase project](https://support.google.com/appsheet/answer/10104995?hl=en). In the Firebase Console for your project, click **+ Add app**, add a **web app** and copy the configuration object to set up the client later.
     -   Then, [enable the Realtime Database](https://firebase.google.com/docs/database/web/start) for your project. In the Firebase Console for your project, select **Build > Realtime Database** from the sidebar, click the **Rules** tab and edit the rules as follows:
-    
+
         ```js
         {
           "rules": {
@@ -40,8 +40,8 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
               "$roomId": {
                 ".read": true,
                 ".write": true,
-                ".validate": "newData.hasChildren(['hostId', 'videoUrl', 'lastUpdate']) && 
-                              newData.child('hostId').isString() && 
+                ".validate": "newData.hasChildren(['hostId', 'videoUrl', 'lastUpdate']) &&
+                              newData.child('hostId').isString() &&
                               newData.child('videoUrl').isString() &&
                               (!newData.hasChild('isPlaying') || newData.child('isPlaying').isBoolean()) &&
                               (!newData.hasChild('currentTime') || newData.child('currentTime').isNumber()) &&
@@ -53,9 +53,10 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
           }
         }
         ```
+
     -   Copy the database URL from the **Data** tab to set up the client later.
     -   If you want to deploy the app to Firebase later, install the Firebase CLI as well:
-    
+
         ```bash
         npm install -g firebase-tools
         ```
@@ -116,18 +117,21 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
     ```bash
     npm install
     ```
+
 -   Run the project locally:
 
     ```bash
     npm run dev
     ```
+
 -   Alternatively, if you want to deploy the project to Firebase:
 
     -   Log into Firebase using the CLI:
-    
+
         ```bash
         firebase login
         ```
+
     -   Initiate the deployment:
 
         ```bash
@@ -138,15 +142,16 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
         -   Ensure that the public directory is set up as `dist`, the deployment is configured as a _single-page app_, and GitHub automatic builds and deploys is **not** enabled.
 
     -   Run the deploy command:
-    
+
         ```bash
         npm run deploy
         ```
+
         -   After the deployment process is completed, you should see a URL in the terminal that you can use to access the app.
 
 ## To-do
 
-- Make use of Google's YouTube Iframe Player API to allow for syncing playback of videos hosted on YouTube. Also find ways to sanitize iframes from other pages before embedding them to make them safe, ad-free, and controllable.
-- Look into options that allow for *streaming* local files instead of having to upload them to a file store (which takes so much time smh).
-- Maybe reduce external dependency complexity by making sure all the external services come from the same vendor. This README is freaking even me out.
-- Add video/audio call support (!!?, then this app is no longer 'no-frills'...).
+-   Make use of Google's YouTube Iframe Player API to allow for syncing playback of videos hosted on YouTube.
+-   Look into options that allow for _streaming_ local files instead of having to upload them to a file store (which takes so much time smh).
+-   Maybe reduce external dependency complexity by making sure all the external services come from the same vendor. This README is freaking even me out.
+-   Add video/audio call support (!!?, then this app is no longer 'no-frills'...).
