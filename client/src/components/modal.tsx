@@ -9,7 +9,7 @@ interface ModalProps {
     onClose: () => void;
     onConfirm?: () => void;
     title: string;
-    message: string;
+    message: string | React.ReactNode;
     confirmText?: string;
     cancelText?: string;
     confirmVariant?: StyleVariant;
@@ -69,9 +69,11 @@ const Modal: React.FC<ModalProps> = ({
                     <p className="text-base">{message}</p>
                 </div>
                 <div className="modal-action p-6 pt-0 flex justify-end gap-2.5">
-                    <Button onClick={onClose} variant="default">
-                        {cancelText}
-                    </Button>
+                    {cancelText && (
+                        <Button onClick={onClose} variant="default">
+                            {cancelText}
+                        </Button>
+                    )}
                     {onConfirm && (
                         <Button onClick={handleConfirm} variant={confirmVariant}>
                             {confirmText}
