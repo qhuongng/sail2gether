@@ -75,7 +75,7 @@ I would love to include the deployed app's URL here, but I'm honestly terrified 
 -   With a terminal opened in the `r2_worker` directory, generate a secret for your bucket to use as authentication for upload requests.
 
     ```bash
-    npx wrangler secret put "SAIL2GETHER_R2_SECRET"
+    wrangler secret put "SAIL2GETHER_R2_SECRET"
 
     # alternatively, if you don't have Wrangler CLI installed
 
