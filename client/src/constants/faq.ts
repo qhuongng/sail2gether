@@ -3,6 +3,7 @@ import type { FAQItem } from "@/types/faq";
 const titleStyle = "font-semibold";
 const linkStyle =
     "font-semibold underline underline-offset-2 hover:text-neutral-500 transition-colors duration-200 ease-in-out";
+const listStyle = "list-disc list-inside";
 
 export const faqData: FAQItem[] = [
     {
@@ -30,13 +31,13 @@ export const faqData: FAQItem[] = [
         content: `
       <p>This is definitely not a 'frequently asked question' LOL. But oh well, something something 'archive my work for future reference'.</p>
       <p class="${titleStyle} mt-4">Front end:</p>
-      <ul class="list-disc list-inside">
+      <ul class="${listStyle}">
         <li><a href="https://vitejs.dev/" target="_blank" rel="noopener noreferrer" class="${linkStyle}">Vite</a> + React + TypeScript</li>
         <li><a href="https://tailwindcss.com/" target="_blank" rel="noopener noreferrer" class="${linkStyle}">TailwindCSS</a> + <a href="https://daisyui.com/" target="_blank" rel="noopener noreferrer" class="${linkStyle}">DaisyUI</a></li>
         <li><a href="https://zustand-demo.pmnd.rs/" target="_blank" rel="noopener noreferrer" class="${linkStyle}">Zustand</a></li>
       </ul>
       <p class="${titleStyle} mt-4">Back end:</p>
-      <ul class="list-disc list-inside">
+      <ul class="${listStyle}">
         <li>🐦‍⬛🐦‍⬛🐦‍⬛</li>
         <li>Just kidding, <a href="https://cloudflare.com" target="_blank" rel="noopener noreferrer" class="${linkStyle}">Cloudflare</a> for the R2 Object Store</li>
         <li><a href="https://firebase.google.com" target="_blank" rel="noopener noreferrer" class="${linkStyle}">Firebase</a> for the real-time database and hosting</li>
@@ -52,21 +53,21 @@ export const faqData: FAQItem[] = [
     {
         title: `<span class="${titleStyle}">Changelog</span>`,
         content: `
-      <p><strong>v1.0</strong> - October 24, 2025</p>
-      <ul class="list-disc list-inside">
+      <p><span class="${titleStyle}">v1.0</span> - October 24, 2025</p>
+      <ul class="${listStyle}">
         <li>Initial release</li>
       </ul>
-      <p class="mt-4"><strong>v1.1</strong> - October 25, 2025</p>
-      <ul class="list-disc list-inside">
+      <p class="mt-4"><span class="${titleStyle}">v1.1</span> - October 25, 2025</p>
+      <ul class="${listStyle}">
         <li>Add subtitles support for local videos</li>
       </ul>
-      <p class="mt-4"><strong>v1.2</strong> - October 26, 2025</p>
-      <ul class="list-disc list-inside">
+      <p class="mt-4"><span class="${titleStyle}">v1.2</span> - October 26, 2025</p>
+      <ul class="${listStyle}">
         <li>Add multipart upload support for local videos</li>
         <li>Add custom video player for local videos</li>
       </ul>
-      <p class="mt-4"><strong>v1.3</strong> - November 8, 2025</p>
-      <ul class="list-disc list-inside">
+      <p class="mt-4"><span class="${titleStyle}">v1.3</span> - November 8, 2025</p>
+      <ul class="${listStyle}">
         <li>Add option to install PWA</li>
         <li>Add this changelog!</li>
       </ul>
