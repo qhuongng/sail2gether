@@ -88,9 +88,9 @@ function Room() {
             try {
                 const video = videoRef.current;
 
-                console.log(
-                    `[VIEWER] Before sync - video at ${video.currentTime}s, paused: ${video.paused}`
-                );
+                // console.log(
+                //     `[VIEWER] Before sync - video at ${video.currentTime}s, paused: ${video.paused}`
+                // );
 
                 await video.play();
                 video.pause();
@@ -106,9 +106,9 @@ function Room() {
 
                     const now = Date.now();
 
-                    console.log(
-                        `[VIEWER] Firebase data - currentTime: ${data.currentTime}s, isPlaying: ${data.isPlaying}, clientTimestamp: ${data.clientTimestamp}`
-                    );
+                    // console.log(
+                    //     `[VIEWER] Firebase data - currentTime: ${data.currentTime}s, isPlaying: ${data.isPlaying}, clientTimestamp: ${data.clientTimestamp}`
+                    // );
 
                     // Calculate latency compensation
                     let latencyCompensation = 0;
@@ -116,11 +116,11 @@ function Room() {
                         const timeSinceUpdate = (now - data.clientTimestamp) / 1000;
                         // Cap at 1.5 seconds to handle periodic sync delays
                         latencyCompensation = Math.min(1.5, timeSinceUpdate);
-                        console.log(
-                            `[VIEWER] Compensation - timeSinceUpdate: ${timeSinceUpdate.toFixed(
-                                3
-                            )}s, compensation: ${latencyCompensation.toFixed(3)}s`
-                        );
+                        // console.log(
+                        //     `[VIEWER] Compensation - timeSinceUpdate: ${timeSinceUpdate.toFixed(
+                        //         3
+                        //     )}s, compensation: ${latencyCompensation.toFixed(3)}s`
+                        // );
                     }
 
                     // Apply playback rate first
@@ -131,20 +131,20 @@ function Room() {
                     // Calculate where host should be NOW and sync immediately
                     if (data.currentTime !== undefined) {
                         const targetTime = data.currentTime + latencyCompensation;
-                        console.log(
-                            `[VIEWER] Setting video from ${video.currentTime.toFixed(
-                                3
-                            )}s to ${targetTime.toFixed(3)}s`
-                        );
+                        // console.log(
+                        //     `[VIEWER] Setting video from ${video.currentTime.toFixed(
+                        //         3
+                        //     )}s to ${targetTime.toFixed(3)}s`
+                        // );
                         video.currentTime = targetTime;
                     }
 
                     // Apply play/pause state AFTER time is set
                     if (data.isPlaying && video.paused) {
-                        console.log(`[VIEWER] Starting playback`);
+                        // console.log(`[VIEWER] Starting playback`);
                         await video.play();
                     } else if (!data.isPlaying && !video.paused) {
-                        console.log(`[VIEWER] Pausing playback`);
+                        // console.log(`[VIEWER] Pausing playback`);
                         video.pause();
                     }
 
@@ -156,7 +156,7 @@ function Room() {
 
                 // Enable sync AFTER applying initial state
                 setViewerSyncEnabled(true);
-                console.log(`[VIEWER] Sync enabled`);
+                // console.log(`[VIEWER] Sync enabled`);
 
                 showToast("Yay! You will now see what the host is watching!!!", "success");
             } catch (error) {
@@ -174,12 +174,12 @@ function Room() {
         const file = e.target.files?.[0];
         if (!file) return;
 
-        console.log(
-            "File selected:",
-            file.name,
-            "Size:",
-            (file.size / 1024 / 1024).toFixed(2) + "MB"
-        );
+        // console.log(
+        //     "File selected:",
+        //     file.name,
+        //     "Size:",
+        //     (file.size / 1024 / 1024).toFixed(2) + "MB"
+        // );
 
         // Check file size
         const maxSize = 4 * 1024 * 1024 * 1024; // 4GB
@@ -195,10 +195,10 @@ function Room() {
         try {
             // If file is small enough, use direct upload
             if (file.size <= CHUNK_SIZE) {
-                console.log("Using direct upload (file <= 80MB)");
+                // console.log("Using direct upload (file <= 80MB)");
                 await directUpload(file);
             } else {
-                console.log("Using chunked upload (file > 80MB)");
+                // console.log("Using chunked upload (file > 80MB)");
                 await chunkedUpload(file);
             }
         } catch (error) {
@@ -275,11 +275,11 @@ function Room() {
     const chunkedUpload = async (file: File): Promise<void> => {
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-        console.log(
-            `Starting chunked upload: ${file.name}, Size: ${(file.size / 1024 / 1024).toFixed(
-                2
-            )}MB, Chunks: ${totalChunks}`
-        );
+        // console.log(
+        //     `Starting chunked upload: ${file.name}, Size: ${(file.size / 1024 / 1024).toFixed(
+        //         2
+        //     )}MB, Chunks: ${totalChunks}`
+        // );
 
         // Step 1: Initialize multipart upload
         const initResponse = await fetch(`${WORKER_URL}/upload/init`, {
@@ -303,7 +303,7 @@ function Room() {
         }
 
         const { uploadId } = await initResponse.json();
-        console.log(`Upload initialized: ${uploadId}`);
+        // console.log(`Upload initialized: ${uploadId}`);
 
         // Step 2: Upload chunks using PUT with progress tracking
         for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
@@ -312,7 +312,7 @@ function Room() {
             const chunk = file.slice(start, end);
             const partNumber = chunkIndex + 1;
 
-            console.log(`Uploading part ${partNumber}/${totalChunks}`);
+            // console.log(`Uploading part ${partNumber}/${totalChunks}`);
 
             // Use XMLHttpRequest for progress tracking
             await new Promise<void>((resolve, reject) => {
@@ -367,7 +367,7 @@ function Room() {
             });
         }
 
-        console.log("All chunks uploaded, completing...");
+        // console.log("All chunks uploaded, completing...");
 
         // Step 3: Complete upload
         const completeResponse = await fetch(`${WORKER_URL}/upload/complete`, {
@@ -554,7 +554,7 @@ function Room() {
                 isPlaying: true,
                 currentTime: videoRef.current.currentTime,
             });
-            console.log("Host: Playing at", videoRef.current.currentTime);
+            // console.log("Host: Playing at", videoRef.current.currentTime);
         } else {
             console.log("Host: Play event blocked", {
                 isHost,
@@ -574,7 +574,7 @@ function Room() {
                         isPlaying: false,
                         currentTime: videoRef.current.currentTime,
                     });
-                    console.log("Host: Paused at", videoRef.current.currentTime);
+                    // console.log("Host: Paused at", videoRef.current.currentTime);
                 }
             }, 0);
         } else {
@@ -596,28 +596,27 @@ function Room() {
 
     // Periodic time sync (host only)
     useEffect(() => {
-        console.log(`[HOST] Periodic sync effect check - isHost: ${isHost}, roomId: ${roomId}`);
+        // console.log(`[HOST] Periodic sync effect check - isHost: ${isHost}, roomId: ${roomId}`);
 
         if (!isHost || !roomId) {
-            console.log("[HOST] Periodic sync NOT set up - conditions not met");
+            // console.log("[HOST] Periodic sync NOT set up - conditions not met");
             return;
         }
 
-        console.log("[HOST] Setting up periodic sync interval");
-
+        // console.log("[HOST] Setting up periodic sync interval");
         const interval = setInterval(() => {
             const video = videoRef.current;
-            console.log(
-                `[HOST] Periodic tick - video exists: ${!!video}, paused: ${video?.paused}`
-            );
+            // console.log(
+            //     `[HOST] Periodic tick - video exists: ${!!video}, paused: ${video?.paused}`
+            // );
 
             if (video && !video.paused) {
                 const currentTime = video.currentTime;
-                console.log(
-                    `[HOST] Periodic sync - sending currentTime: ${currentTime.toFixed(
-                        3
-                    )}s, isPlaying: true`
-                );
+                // console.log(
+                //     `[HOST] Periodic sync - sending currentTime: ${currentTime.toFixed(
+                //         3
+                //     )}s, isPlaying: true`
+                // );
                 updateRoomState({
                     currentTime: currentTime,
                     isPlaying: true, // CRITICAL: Include isPlaying so clientTimestamp stays fresh
@@ -626,7 +625,7 @@ function Room() {
         }, 1000); // Sync every second
 
         return () => {
-            console.log("[HOST] Cleaning up periodic sync interval");
+            // console.log("[HOST] Cleaning up periodic sync interval");
             clearInterval(interval);
         };
     }, [isHost, roomId, updateRoomState]);
@@ -657,7 +656,7 @@ function Room() {
             if (!isHost) {
                 const video = videoRef.current;
                 if (!video) {
-                    console.log("Viewer: No video element found");
+                    // console.log("Viewer: No video element found");
                     return;
                 }
 
@@ -697,16 +696,16 @@ function Room() {
                     // Compare viewer's current position with where host should be
                     const drift = Math.abs(video.currentTime - targetTime);
 
-                    console.log(
-                        `[VIEWER] Ongoing - viewer at ${video.currentTime.toFixed(
-                            3
-                        )}s, target ${targetTime.toFixed(3)}s, drift ${drift.toFixed(3)}s`
-                    );
+                    // console.log(
+                    //     `[VIEWER] Ongoing - viewer at ${video.currentTime.toFixed(
+                    //         3
+                    //     )}s, target ${targetTime.toFixed(3)}s, drift ${drift.toFixed(3)}s`
+                    // );
 
                     // Sync if drift exceeds threshold (0.3s) or it's been a while since last sync
                     // Use higher threshold to avoid constant micro-adjustments
                     if (drift > 0.3 || now - lastSyncTime.current > 2000) {
-                        console.log(`[VIEWER] CORRECTING - setting to ${targetTime.toFixed(3)}s`);
+                        // console.log(`[VIEWER] CORRECTING - setting to ${targetTime.toFixed(3)}s`);
                         video.currentTime = targetTime;
                         lastSyncTime.current = now;
                     }

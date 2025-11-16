@@ -161,7 +161,7 @@ function Home() {
                         console.error("Error deleting video from R2:", error);
                     }
                 } else {
-                    console.log("Video URL is not hosted on R2, skipping deletion:", data.videoUrl);
+                    // console.log("Video URL is not hosted on R2, skipping deletion:", data.videoUrl);
                 }
 
                 // Delete subtitles from R2 if they exist and are hosted on R2
@@ -201,10 +201,10 @@ function Home() {
                         console.error("Error deleting subtitles from R2:", error);
                     }
                 } else if (data.subtitlesUrl) {
-                    console.log(
-                        "Subtitles URL is not hosted on R2, skipping deletion:",
-                        data.subtitlesUrl
-                    );
+                    // console.log(
+                    //     "Subtitles URL is not hosted on R2, skipping deletion:",
+                    //     data.subtitlesUrl
+                    // );
                 }
 
                 // Delete room from Firebase
