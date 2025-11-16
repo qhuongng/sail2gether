@@ -117,3 +117,26 @@ body {
         opacity: 1;
     }
 }
+
+/* Ensure video controls are visible in fullscreen mode */
+figure:fullscreen #video-controls,
+figure:-webkit-full-screen #video-controls,
+figure:-moz-full-screen #video-controls,
+figure:-ms-fullscreen #video-controls {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    z-index: 2147483647 !important;
+    width: 100vw !important;
+    transform: translateZ(0) !important;
+    will-change: transform !important;
+}
+
+/* Ensure video doesn't cover controls in fullscreen */
+figure:fullscreen video,
+figure:-webkit-full-screen video,
+figure:-moz-full-screen video,
+figure:-ms-fullscreen video {
+    max-height: calc(100vh - 60px) !important;
+}

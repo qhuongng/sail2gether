@@ -83,12 +83,81 @@ function Room() {
 
     // Enable sync for viewer (requires user interaction for autoplay)
     const enableViewerSync = async (): Promise<void> => {
-        if (videoRef.current) {
+        if (videoRef.current && roomId) {
             // Try to play and immediately pause to satisfy browser autoplay policy
             try {
-                await videoRef.current.play();
-                videoRef.current.pause();
+                const video = videoRef.current;
+
+                console.log(
+                    `[VIEWER] Before sync - video at ${video.currentTime}s, paused: ${video.paused}`
+                );
+
+                await video.play();
+                video.pause();
+
+                // Immediately fetch and apply current room state BEFORE enabling sync
+                const roomRef = ref(db, `rooms/${roomId}`);
+                const snapshot = await get(roomRef);
+
+                if (snapshot.exists()) {
+                    const data = snapshot.val() as RoomData;
+
+                    setIsUpdatingFromFirebase(true);
+
+                    const now = Date.now();
+
+                    console.log(
+                        `[VIEWER] Firebase data - currentTime: ${data.currentTime}s, isPlaying: ${data.isPlaying}, clientTimestamp: ${data.clientTimestamp}`
+                    );
+
+                    // Calculate latency compensation
+                    let latencyCompensation = 0;
+                    if (data.clientTimestamp && data.isPlaying) {
+                        const timeSinceUpdate = (now - data.clientTimestamp) / 1000;
+                        // Cap at 1.5 seconds to handle periodic sync delays
+                        latencyCompensation = Math.min(1.5, timeSinceUpdate);
+                        console.log(
+                            `[VIEWER] Compensation - timeSinceUpdate: ${timeSinceUpdate.toFixed(
+                                3
+                            )}s, compensation: ${latencyCompensation.toFixed(3)}s`
+                        );
+                    }
+
+                    // Apply playback rate first
+                    if (data.playbackRate !== undefined) {
+                        video.playbackRate = data.playbackRate;
+                    }
+
+                    // Calculate where host should be NOW and sync immediately
+                    if (data.currentTime !== undefined) {
+                        const targetTime = data.currentTime + latencyCompensation;
+                        console.log(
+                            `[VIEWER] Setting video from ${video.currentTime.toFixed(
+                                3
+                            )}s to ${targetTime.toFixed(3)}s`
+                        );
+                        video.currentTime = targetTime;
+                    }
+
+                    // Apply play/pause state AFTER time is set
+                    if (data.isPlaying && video.paused) {
+                        console.log(`[VIEWER] Starting playback`);
+                        await video.play();
+                    } else if (!data.isPlaying && !video.paused) {
+                        console.log(`[VIEWER] Pausing playback`);
+                        video.pause();
+                    }
+
+                    // Initialize last sync time
+                    lastSyncTime.current = now;
+
+                    setIsUpdatingFromFirebase(false);
+                }
+
+                // Enable sync AFTER applying initial state
                 setViewerSyncEnabled(true);
+                console.log(`[VIEWER] Sync enabled`);
+
                 showToast("Yay! You will now see what the host is watching!!!", "success");
             } catch (error) {
                 console.error("Failed to enable sync:", error);
@@ -485,6 +554,7 @@ function Room() {
                 isPlaying: true,
                 currentTime: videoRef.current.currentTime,
             });
+            console.log("Host: Playing at", videoRef.current.currentTime);
         } else {
             console.log("Host: Play event blocked", {
                 isHost,
@@ -496,10 +566,17 @@ function Room() {
 
     const handlePause = (): void => {
         if (isHost && videoRef.current && !isUpdatingFromFirebase) {
-            updateRoomState({
-                isPlaying: false,
-                currentTime: videoRef.current.currentTime,
-            });
+            // Use setTimeout to ensure we get the accurate paused time
+            // (the pause event can fire before currentTime is fully updated)
+            setTimeout(() => {
+                if (videoRef.current) {
+                    updateRoomState({
+                        isPlaying: false,
+                        currentTime: videoRef.current.currentTime,
+                    });
+                    console.log("Host: Paused at", videoRef.current.currentTime);
+                }
+            }, 0);
         } else {
             console.log("Host: Pause event blocked", {
                 isHost,
@@ -519,17 +596,39 @@ function Room() {
 
     // Periodic time sync (host only)
     useEffect(() => {
-        if (!isHost || !roomId || !videoRef.current) return;
+        console.log(`[HOST] Periodic sync effect check - isHost: ${isHost}, roomId: ${roomId}`);
+
+        if (!isHost || !roomId) {
+            console.log("[HOST] Periodic sync NOT set up - conditions not met");
+            return;
+        }
+
+        console.log("[HOST] Setting up periodic sync interval");
 
         const interval = setInterval(() => {
-            if (videoRef.current && !videoRef.current.paused) {
+            const video = videoRef.current;
+            console.log(
+                `[HOST] Periodic tick - video exists: ${!!video}, paused: ${video?.paused}`
+            );
+
+            if (video && !video.paused) {
+                const currentTime = video.currentTime;
+                console.log(
+                    `[HOST] Periodic sync - sending currentTime: ${currentTime.toFixed(
+                        3
+                    )}s, isPlaying: true`
+                );
                 updateRoomState({
-                    currentTime: videoRef.current.currentTime,
+                    currentTime: currentTime,
+                    isPlaying: true, // CRITICAL: Include isPlaying so clientTimestamp stays fresh
                 });
             }
         }, 1000); // Sync every second
 
-        return () => clearInterval(interval);
+        return () => {
+            console.log("[HOST] Cleaning up periodic sync interval");
+            clearInterval(interval);
+        };
     }, [isHost, roomId, updateRoomState]);
 
     // Listen to room updates
@@ -570,42 +669,55 @@ function Room() {
 
                 setIsUpdatingFromFirebase(true);
 
-                // Sync playback state
+                const now = Date.now();
+
+                // Calculate latency compensation if clientTimestamp is available
+                let latencyCompensation = 0;
+                if (data.clientTimestamp && data.isPlaying) {
+                    const timeSinceUpdate = (now - data.clientTimestamp) / 1000;
+                    // Cap at 1.5 seconds to handle periodic sync delays
+                    latencyCompensation = Math.min(1.5, timeSinceUpdate);
+
+                    // Store for debugging
+                    if (lastUpdateTimestamp.current !== data.clientTimestamp) {
+                        lastUpdateTimestamp.current = data.clientTimestamp;
+                        console.log(
+                            `Ongoing sync - Time since update: ${timeSinceUpdate.toFixed(
+                                3
+                            )}s, compensation: ${latencyCompensation.toFixed(3)}s`
+                        );
+                    }
+                }
+
+                // Sync time FIRST (before play/pause to avoid visible jumps)
+                if (data.currentTime !== undefined) {
+                    // Calculate where the host should be NOW
+                    const targetTime = data.currentTime + latencyCompensation;
+
+                    // Compare viewer's current position with where host should be
+                    const drift = Math.abs(video.currentTime - targetTime);
+
+                    console.log(
+                        `[VIEWER] Ongoing - viewer at ${video.currentTime.toFixed(
+                            3
+                        )}s, target ${targetTime.toFixed(3)}s, drift ${drift.toFixed(3)}s`
+                    );
+
+                    // Sync if drift exceeds threshold (0.3s) or it's been a while since last sync
+                    // Use higher threshold to avoid constant micro-adjustments
+                    if (drift > 0.3 || now - lastSyncTime.current > 2000) {
+                        console.log(`[VIEWER] CORRECTING - setting to ${targetTime.toFixed(3)}s`);
+                        video.currentTime = targetTime;
+                        lastSyncTime.current = now;
+                    }
+                }
+
+                // Sync playback state AFTER time is synced
                 if (data.isPlaying !== undefined) {
                     if (data.isPlaying && video.paused) {
                         video.play().catch((e: Error) => console.log("Play failed:", e));
                     } else if (!data.isPlaying && !video.paused) {
                         video.pause();
-                    }
-                }
-
-                // Sync time with latency compensation
-                if (data.currentTime !== undefined) {
-                    const timeDiff = Math.abs(video.currentTime - data.currentTime);
-                    const now = Date.now();
-
-                    // Calculate actual latency if clientTimestamp is available
-                    let latencyCompensation = 0.5; // Default 500ms
-                    if (data.clientTimestamp) {
-                        const measuredLatency = now - data.clientTimestamp;
-                        // Use measured latency but cap it at reasonable values (100ms - 2000ms)
-                        latencyCompensation = Math.max(0.1, Math.min(2.0, measuredLatency / 1000));
-
-                        // Store for debugging
-                        if (lastUpdateTimestamp.current !== data.clientTimestamp) {
-                            lastUpdateTimestamp.current = data.clientTimestamp;
-                        }
-                    }
-
-                    // Only apply compensation if playing
-                    const targetTime =
-                        data.currentTime + (data.isPlaying ? latencyCompensation : 0);
-
-                    // More aggressive sync with lower threshold (0.3s instead of 1s)
-                    // This catches drift faster before it becomes noticeable
-                    if (timeDiff > 0.3 && now - lastSyncTime.current > 300) {
-                        video.currentTime = targetTime;
-                        lastSyncTime.current = now;
                     }
                 }
 
