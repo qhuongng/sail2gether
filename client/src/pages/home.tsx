@@ -231,7 +231,11 @@ function Home() {
         <div className="max-w-3xl mx-auto p-12 h-screen flex flex-col justify-center">
             <div className="flex items-center gap-2 mb-8">
                 <img src={iconImage} alt="sail2gether icon" className="h-12" />
-                <h1 className="font-bold text-3xl">sail2gether</h1>
+                <div className="flex flex-col">
+                    <h1 className="font-bold text-3xl">sail2gether</h1>
+                    <p className="text-sm">v1.3.1</p>
+                </div>
+
                 <Link to="/faq" className="text-lg font-bold hover:underline mb-auto">
                     ?
                 </Link>
