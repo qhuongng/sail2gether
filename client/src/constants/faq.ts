@@ -71,7 +71,7 @@ export const faqData: FAQItem[] = [
         <li>Add option to install PWA</li>
         <li>Add this changelog!</li>
       </ul>
-      <p class="mt-4"><span class="${titleStyle}">v1.3.1</span> - November 8, 2025</p>
+      <p class="mt-4"><span class="${titleStyle}">v1.3.1</span> - November 16, 2025</p>
       <ul class="${listStyle}">
         <li>Fix an issue where controls were invisible for wide videos in fullscreen</li>
         <li>Fix an issue where a video would not sync correctly when a viewer enables sync after the host has played</li>
