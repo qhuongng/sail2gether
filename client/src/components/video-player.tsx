@@ -428,15 +428,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ref={videoContainerRef}
             className="relative border-2 border-base-300"
             style={{
-                display: isFullscreen ? "flex" : "block",
-                alignItems: isFullscreen ? "center" : "initial",
-                justifyContent: isFullscreen ? "center" : "initial",
+                display: "block",
                 backgroundColor: isFullscreen ? "black" : "transparent",
+                width: isFullscreen ? "100vw" : "auto",
+                height: isFullscreen ? "100vh" : "auto",
             }}
         >
             <video
                 ref={videoRef}
-                controls
                 crossOrigin="anonymous"
                 preload="metadata"
                 onPlay={onPlay}
@@ -445,6 +444,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 className="w-full h-auto"
                 style={{
                     objectFit: "contain",
+                    width: "100%",
+                    height: isFullscreen ? "calc(100vh - 60px)" : "auto",
+                    display: "block",
                 }}
             >
                 <source src={source} />
@@ -458,9 +460,17 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 ref={videoControlsRef}
                 data-state={controlsVisible ? "visible" : "hidden"}
                 id="video-controls"
-                className={`flex items-center p-2 gap-2 bg-base-100 absolute bottom-0 left-0 right-0 border-t-2 border-base-300 transition-opacity duration-100 overflow-visible ${
+                className={`flex items-center p-2 gap-2 bg-base-100 border-t-2 border-base-300 transition-opacity duration-100 overflow-visible ${
                     showControls ? "opacity-100" : "opacity-0 pointer-events-none"
                 }`}
+                style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    width: "100%",
+                    zIndex: 100,
+                }}
             >
                 {/** Play/Pause button */}
                 {isHost && (
