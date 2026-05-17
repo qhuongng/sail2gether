@@ -458,9 +458,10 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 ref={videoControlsRef}
                 data-state={controlsVisible ? "visible" : "hidden"}
                 id="video-controls"
-                className={`flex items-center p-2 gap-2 bg-base-100 absolute bottom-0 left-0 right-0 border-t-2 border-base-300 transition-opacity duration-100 overflow-visible ${
+                className={`flex items-center p-2 gap-2 bg-base-100 absolute bottom-0 left-0 right-0 border-t-2 border-base-300 transition-opacity duration-100 overflow-visible z-10 ${
                     showControls ? "opacity-100" : "opacity-0 pointer-events-none"
                 }`}
+                style={{ transform: "translateZ(0)" }}
             >
                 {/** Play/Pause button */}
                 {isHost && (

@@ -83,20 +83,44 @@ function Room() {
 
     // Enable sync for viewer (requires user interaction for autoplay)
     const enableViewerSync = async (): Promise<void> => {
-        if (videoRef.current) {
-            // Try to play and immediately pause to satisfy browser autoplay policy
-            try {
-                await videoRef.current.play();
-                videoRef.current.pause();
-                setViewerSyncEnabled(true);
-                showToast("Yay! You will now see what the host is watching!!!", "success");
-            } catch (error) {
-                console.error("Failed to enable sync:", error);
-                showToast(
-                    "Hmmm, something went wrong. Please try again once the video shows up.",
-                    "error"
-                );
+        if (!videoRef.current || !roomId) return;
+
+        const video = videoRef.current;
+
+        try {
+            // Seek to the host's current position BEFORE the play+pause gesture so
+            // the video doesn't briefly play from 0 and so the subsequent onValue
+            // sync has nothing left to correct.
+            const roomRef = ref(db, `rooms/${roomId}`);
+            const snapshot = await get(roomRef);
+
+            if (snapshot.exists()) {
+                const data = snapshot.val() as RoomData;
+                if (typeof data.currentTime === "number") {
+                    let targetTime = data.currentTime;
+                    // If host is playing, advance by the time elapsed since their
+                    // last update so we land where they actually are right now.
+                    if (data.isPlaying && data.clientTimestamp) {
+                        const elapsed = (Date.now() - data.clientTimestamp) / 1000;
+                        targetTime += elapsed;
+                    }
+                    if (Number.isFinite(targetTime) && targetTime >= 0) {
+                        video.currentTime = targetTime;
+                    }
+                }
             }
+
+            // Play + pause to satisfy browser autoplay policy
+            await video.play();
+            video.pause();
+            setViewerSyncEnabled(true);
+            showToast("Yay! You will now see what the host is watching!!!", "success");
+        } catch (error) {
+            console.error("Failed to enable sync:", error);
+            showToast(
+                "Hmmm, something went wrong. Please try again once the video shows up.",
+                "error"
+            );
         }
     };
 
