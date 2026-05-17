@@ -88,31 +88,45 @@ function Room() {
         const video = videoRef.current;
 
         try {
-            // Seek to the host's current position BEFORE the play+pause gesture so
-            // the video doesn't briefly play from 0 and so the subsequent onValue
-            // sync has nothing left to correct.
+            // Fetch the host's current state.
             const roomRef = ref(db, `rooms/${roomId}`);
             const snapshot = await get(roomRef);
 
-            if (snapshot.exists()) {
-                const data = snapshot.val() as RoomData;
-                if (typeof data.currentTime === "number") {
-                    let targetTime = data.currentTime;
-                    // If host is playing, advance by the time elapsed since their
-                    // last update so we land where they actually are right now.
-                    if (data.isPlaying && data.clientTimestamp) {
-                        const elapsed = (Date.now() - data.clientTimestamp) / 1000;
-                        targetTime += elapsed;
-                    }
-                    if (Number.isFinite(targetTime) && targetTime >= 0) {
-                        video.currentTime = targetTime;
-                    }
+            const data = snapshot.exists() ? (snapshot.val() as RoomData) : null;
+
+            // Seek to where the host actually is right now (their last reported
+            // time + however long ago they reported it).
+            if (data && typeof data.currentTime === "number") {
+                let targetTime = data.currentTime;
+                if (data.isPlaying && data.clientTimestamp) {
+                    targetTime += (Date.now() - data.clientTimestamp) / 1000;
+                }
+                if (Number.isFinite(targetTime) && targetTime >= 0) {
+                    video.currentTime = targetTime;
                 }
             }
 
-            // Play + pause to satisfy browser autoplay policy
-            await video.play();
-            video.pause();
+            if (data?.isPlaying) {
+                // Host is playing — start playback now (the click gives us the
+                // user-activation we need). play() resolves only once the video
+                // has actually begun, and the host moved forward during that
+                // window, so re-seek by that amount to land where they really
+                // are.
+                const beforePlay = Date.now();
+                await video.play();
+                const startupDelay = (Date.now() - beforePlay) / 1000;
+                if (startupDelay > 0.05 && Number.isFinite(video.currentTime)) {
+                    video.currentTime += startupDelay;
+                }
+            } else {
+                // Host is paused — we still need to "activate" the video element
+                // so that when the host later hits play, the onValue listener can
+                // call play() without being blocked by autoplay policy (user
+                // activation from the click will have expired by then).
+                await video.play();
+                video.pause();
+            }
+
             setViewerSyncEnabled(true);
             showToast("Yay! You will now see what the host is watching!!!", "success");
         } catch (error) {
