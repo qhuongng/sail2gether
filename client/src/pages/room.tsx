@@ -98,6 +98,32 @@ function Room() {
         }
     }, [roomId]);
 
+    // Wait until the video has buffered enough data at its current position to
+    // start playing without stalling. Without this, calling play() right after
+    // a seek blocks while buffering, and the host drifts forward during the
+    // block. Returns early if already ready, and gives up after timeoutMs.
+    const waitUntilReadyToPlay = (
+        video: HTMLVideoElement,
+        timeoutMs: number = 3000
+    ): Promise<void> => {
+        return new Promise<void>((resolve) => {
+            if (video.readyState >= 3 /* HAVE_FUTURE_DATA */) {
+                resolve();
+                return;
+            }
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                video.removeEventListener("canplay", finish);
+                clearTimeout(timeoutId);
+                resolve();
+            };
+            video.addEventListener("canplay", finish);
+            const timeoutId = setTimeout(finish, timeoutMs);
+        });
+    };
+
     // Enable sync for viewer (requires user interaction for autoplay)
     const enableViewerSync = async (): Promise<void> => {
         if (!videoRef.current || !roomId) return;
@@ -108,39 +134,56 @@ function Room() {
             // Fetch the host's current state.
             const roomRef = ref(db, `rooms/${roomId}`);
             const snapshot = await get(roomRef);
-
             const data = snapshot.exists() ? (snapshot.val() as RoomData) : null;
 
-            // Seek to where the host actually is right now (their last reported
-            // time + however long ago they reported it). Use the Firebase
-            // server clock for "elapsed" so it isn't thrown off by clock skew
-            // between the host and viewer machines.
-            if (data && typeof data.currentTime === "number") {
-                let targetTime = data.currentTime;
+            // Where the host actually is right now (their last reported time
+            // + however long ago they reported it, measured against the
+            // Firebase server clock so it isn't thrown off by host/viewer
+            // local-clock skew).
+            const computeHostNow = (): number | null => {
+                if (!data || typeof data.currentTime !== "number") return null;
+                let t = data.currentTime;
                 if (data.isPlaying && typeof data.lastUpdate === "number") {
                     const serverNow = Date.now() + serverTimeOffset.current;
                     const elapsed = (serverNow - data.lastUpdate) / 1000;
                     if (Number.isFinite(elapsed) && elapsed >= 0) {
-                        targetTime += elapsed;
+                        t += elapsed;
                     }
                 }
-                if (Number.isFinite(targetTime) && targetTime >= 0) {
-                    video.currentTime = targetTime;
-                }
+                return Number.isFinite(t) && t >= 0 ? t : null;
+            };
+
+            // Initial seek to host's current position.
+            const initialTarget = computeHostNow();
+            if (initialTarget !== null) {
+                video.currentTime = initialTarget;
             }
 
             if (data?.isPlaying) {
-                // Host is playing — start playback now (the click gives us the
-                // user-activation we need). The viewer may still trail by the
-                // play-startup buffer time, but we let the ongoing onValue
-                // sync correct that drift instead of re-seeking here, which
-                // would just trigger another buffer.
+                // Let the video finish buffering at the seek position BEFORE
+                // calling play(). If we don't, play() stalls in the buffer and
+                // the host drifts forward by however long the buffer takes —
+                // that's where the persistent ~1s gap was coming from.
+                await waitUntilReadyToPlay(video);
+
+                // Re-seek to where the host is now (the buffer wait let them
+                // drift forward). Browsers buffer forward from the seek
+                // position, so this small forward jump is almost always
+                // already buffered — instant, no second wait.
+                const updatedTarget = computeHostNow();
+                if (
+                    updatedTarget !== null &&
+                    Math.abs(updatedTarget - video.currentTime) > 0.1
+                ) {
+                    video.currentTime = updatedTarget;
+                }
+
                 await video.play();
             } else {
-                // Host is paused — we still need to "activate" the video element
-                // so that when the host later hits play, the onValue listener can
-                // call play() without being blocked by autoplay policy (user
-                // activation from the click will have expired by then).
+                // Host is paused — still need to "activate" the video element
+                // so the onValue listener can play() it later without being
+                // blocked by autoplay policy (the click's user activation
+                // will have expired by then).
                 await video.play();
                 video.pause();
             }
@@ -635,41 +678,56 @@ function Room() {
                     }
                 }
 
-                // Sync time with latency compensation
+                // Sync time and playback rate together. For small drifts we
+                // nudge playbackRate up/down so the viewer closes the gap
+                // smoothly — seeking every time would re-trigger the buffer
+                // and keep us perpetually behind.
                 if (data.currentTime !== undefined) {
                     const now = Date.now();
 
-                    // Measure elapsed time against the Firebase server clock
-                    // (data.lastUpdate) rather than the host's local clock —
-                    // host/viewer clock skew can be seconds.
-                    let latencyCompensation = 0.5; // fallback if lastUpdate missing
-                    if (typeof data.lastUpdate === "number") {
+                    // Compute where the host actually is right now, using the
+                    // Firebase server clock (data.lastUpdate) so host/viewer
+                    // local-clock skew doesn't bias us.
+                    let targetTime = data.currentTime;
+                    if (data.isPlaying && typeof data.lastUpdate === "number") {
                         const serverNow = Date.now() + serverTimeOffset.current;
-                        const measuredLatency = serverNow - data.lastUpdate;
-                        latencyCompensation = Math.max(0.1, Math.min(2.0, measuredLatency / 1000));
-
+                        const elapsed = (serverNow - data.lastUpdate) / 1000;
+                        if (Number.isFinite(elapsed) && elapsed >= 0) {
+                            targetTime += elapsed;
+                        }
                         if (lastUpdateTimestamp.current !== data.lastUpdate) {
                             lastUpdateTimestamp.current = data.lastUpdate;
                         }
                     }
 
-                    const targetTime =
-                        data.currentTime + (data.isPlaying ? latencyCompensation : 0);
-                    const timeDiff = Math.abs(video.currentTime - targetTime);
+                    const drift = targetTime - video.currentTime; // +ve: behind
+                    const baseRate = data.playbackRate || 1.0;
 
-                    // Re-seek when drift exceeds the threshold. Comparing
-                    // against the latency-compensated targetTime (not the
-                    // raw data.currentTime) avoids spurious re-seeks where
-                    // the viewer is actually correct after compensation.
-                    if (timeDiff > 0.3 && now - lastSyncTime.current > 300) {
-                        video.currentTime = targetTime;
-                        lastSyncTime.current = now;
+                    if (data.isPlaying) {
+                        if (Math.abs(drift) > 3 && now - lastSyncTime.current > 500) {
+                            // Big gap (host scrubbed, or huge stall) — hard seek.
+                            video.currentTime = targetTime;
+                            video.playbackRate = baseRate;
+                            lastSyncTime.current = now;
+                        } else if (drift > 0.2) {
+                            // Behind: speed up slightly to close the gap
+                            // without seeking (no buffer interruption).
+                            video.playbackRate = baseRate * (drift > 1 ? 1.15 : 1.05);
+                        } else if (drift < -0.2) {
+                            // Ahead (rare): slow down.
+                            video.playbackRate = baseRate * (drift < -1 ? 0.85 : 0.95);
+                        } else {
+                            // In sync — match host's rate exactly.
+                            video.playbackRate = baseRate;
+                        }
+                    } else {
+                        // Host paused — match position precisely.
+                        video.playbackRate = baseRate;
+                        if (Math.abs(drift) > 0.3 && now - lastSyncTime.current > 300) {
+                            video.currentTime = targetTime;
+                            lastSyncTime.current = now;
+                        }
                     }
-                }
-
-                // Sync playback rate
-                if (data.playbackRate && video.playbackRate !== data.playbackRate) {
-                    video.playbackRate = data.playbackRate;
                 }
 
                 // Clear flag immediately
