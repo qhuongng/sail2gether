@@ -42,6 +42,23 @@ function Room() {
     const lastSyncTime = useRef<number>(0);
     const lastUpdateTimestamp = useRef<number>(0);
     const uploadAbortController = useRef<AbortController | null>(null);
+    // Offset between the Firebase server clock and this client's clock
+    // (server_time = Date.now() + serverTimeOffset). Avoids host/viewer clock
+    // skew breaking the "how much has elapsed since the host's last update"
+    // math.
+    const serverTimeOffset = useRef<number>(0);
+
+    // Track Firebase server time offset
+    useEffect(() => {
+        const offsetRef = ref(db, ".info/serverTimeOffset");
+        const unsubscribe = onValue(offsetRef, (snapshot) => {
+            const offset = snapshot.val();
+            if (typeof offset === "number") {
+                serverTimeOffset.current = offset;
+            }
+        });
+        return () => unsubscribe();
+    }, []);
 
     // Check if room exists in Firebase
     useEffect(() => {
@@ -95,11 +112,17 @@ function Room() {
             const data = snapshot.exists() ? (snapshot.val() as RoomData) : null;
 
             // Seek to where the host actually is right now (their last reported
-            // time + however long ago they reported it).
+            // time + however long ago they reported it). Use the Firebase
+            // server clock for "elapsed" so it isn't thrown off by clock skew
+            // between the host and viewer machines.
             if (data && typeof data.currentTime === "number") {
                 let targetTime = data.currentTime;
-                if (data.isPlaying && data.clientTimestamp) {
-                    targetTime += (Date.now() - data.clientTimestamp) / 1000;
+                if (data.isPlaying && typeof data.lastUpdate === "number") {
+                    const serverNow = Date.now() + serverTimeOffset.current;
+                    const elapsed = (serverNow - data.lastUpdate) / 1000;
+                    if (Number.isFinite(elapsed) && elapsed >= 0) {
+                        targetTime += elapsed;
+                    }
                 }
                 if (Number.isFinite(targetTime) && targetTime >= 0) {
                     video.currentTime = targetTime;
@@ -108,16 +131,11 @@ function Room() {
 
             if (data?.isPlaying) {
                 // Host is playing — start playback now (the click gives us the
-                // user-activation we need). play() resolves only once the video
-                // has actually begun, and the host moved forward during that
-                // window, so re-seek by that amount to land where they really
-                // are.
-                const beforePlay = Date.now();
+                // user-activation we need). The viewer may still trail by the
+                // play-startup buffer time, but we let the ongoing onValue
+                // sync correct that drift instead of re-seeking here, which
+                // would just trigger another buffer.
                 await video.play();
-                const startupDelay = (Date.now() - beforePlay) / 1000;
-                if (startupDelay > 0.05 && Number.isFinite(video.currentTime)) {
-                    video.currentTime += startupDelay;
-                }
             } else {
                 // Host is paused — we still need to "activate" the video element
                 // so that when the host later hits play, the onValue listener can
@@ -619,28 +637,30 @@ function Room() {
 
                 // Sync time with latency compensation
                 if (data.currentTime !== undefined) {
-                    const timeDiff = Math.abs(video.currentTime - data.currentTime);
                     const now = Date.now();
 
-                    // Calculate actual latency if clientTimestamp is available
-                    let latencyCompensation = 0.5; // Default 500ms
-                    if (data.clientTimestamp) {
-                        const measuredLatency = now - data.clientTimestamp;
-                        // Use measured latency but cap it at reasonable values (100ms - 2000ms)
+                    // Measure elapsed time against the Firebase server clock
+                    // (data.lastUpdate) rather than the host's local clock —
+                    // host/viewer clock skew can be seconds.
+                    let latencyCompensation = 0.5; // fallback if lastUpdate missing
+                    if (typeof data.lastUpdate === "number") {
+                        const serverNow = Date.now() + serverTimeOffset.current;
+                        const measuredLatency = serverNow - data.lastUpdate;
                         latencyCompensation = Math.max(0.1, Math.min(2.0, measuredLatency / 1000));
 
-                        // Store for debugging
-                        if (lastUpdateTimestamp.current !== data.clientTimestamp) {
-                            lastUpdateTimestamp.current = data.clientTimestamp;
+                        if (lastUpdateTimestamp.current !== data.lastUpdate) {
+                            lastUpdateTimestamp.current = data.lastUpdate;
                         }
                     }
 
-                    // Only apply compensation if playing
                     const targetTime =
                         data.currentTime + (data.isPlaying ? latencyCompensation : 0);
+                    const timeDiff = Math.abs(video.currentTime - targetTime);
 
-                    // More aggressive sync with lower threshold (0.3s instead of 1s)
-                    // This catches drift faster before it becomes noticeable
+                    // Re-seek when drift exceeds the threshold. Comparing
+                    // against the latency-compensated targetTime (not the
+                    // raw data.currentTime) avoids spurious re-seeks where
+                    // the viewer is actually correct after compensation.
                     if (timeDiff > 0.3 && now - lastSyncTime.current > 300) {
                         video.currentTime = targetTime;
                         lastSyncTime.current = now;
